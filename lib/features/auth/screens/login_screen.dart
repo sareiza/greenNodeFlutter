@@ -1,0 +1,398 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+
+import '../../../core/constants/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/greennode_logo.dart';
+import '../providers/auth_provider.dart';
+
+/// Valores puntuales del mockup que no forman parte de los Design Tokens
+/// (tabla "Colores de marca"/"Colores de estado" del README) pero aparecen
+/// en la referencia HTML de la sección "1. Iniciar sesión".
+const _labelColor = Color(0xFF28392F);
+const _rememberTextColor = Color(0xFF3E4F44);
+const _logoutBorder = Color(0xFFBFE2CC);
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  bool _obscurePassword = true;
+  bool _remember = false;
+  bool _loggedIn = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _login() {
+    setState(() => _loggedIn = true);
+    context.read<AuthProvider>().login(email: _emailController.text.trim());
+    final router = GoRouter.of(context);
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) router.go('/proyecto');
+    });
+  }
+
+  void _logout() {
+    setState(() {
+      _loggedIn = false;
+      _emailController.clear();
+      _passwordController.clear();
+      _obscurePassword = true;
+      _remember = false;
+    });
+    context.read<AuthProvider>().logout();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            radius: 1.2,
+            colors: [
+              AppColors.bgGradientStart,
+              AppColors.bgGradientMid,
+              AppColors.bgGradientEnd,
+            ],
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: _loggedIn ? _buildSuccess() : _buildForm(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Center(child: GreenNodeLogo(size: 28)),
+        const SizedBox(height: 28),
+        Text(
+          'Bienvenido de nuevo',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 30,
+            fontWeight: FontWeight.w700,
+            height: 1.1,
+            letterSpacing: -0.6,
+            color: AppColors.ink,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Inicia sesión para gestionar tu reforestación.',
+          style: AppTextStyles.cuerpo,
+        ),
+        const SizedBox(height: 30),
+        _label('Email corporativo'),
+        const SizedBox(height: 7),
+        TextField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          style: GoogleFonts.hankenGrotesk(
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+            color: AppColors.ink,
+          ),
+          decoration: const InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            hintText: 'nombre@empresa.com',
+          ),
+        ),
+        const SizedBox(height: 18),
+        _label('Contraseña'),
+        const SizedBox(height: 7),
+        TextField(
+          controller: _passwordController,
+          obscureText: _obscurePassword,
+          style: GoogleFonts.hankenGrotesk(
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+            color: AppColors.ink,
+          ),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: Colors.white,
+            hintText: '••••••••',
+            suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+            suffixIcon: Padding(
+              padding: const EdgeInsets.only(right: 15),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => setState(() => _obscurePassword = !_obscurePassword),
+                child: Center(
+                  widthFactor: 1,
+                  child: Text(
+                    _obscurePassword ? 'Ver' : 'Ocultar',
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 26),
+        Row(
+          children: [
+            Transform.scale(
+              scale: 0.85,
+              child: Switch(
+                value: _remember,
+                onChanged: (v) => setState(() => _remember = v),
+                activeThumbColor: AppColors.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'Mantener sesión',
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: _rememberTextColor,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '¿Olvidaste tu contraseña?',
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 26),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: 0.28),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ElevatedButton(
+            onPressed: _login,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+            ).copyWith(
+              overlayColor: WidgetStateProperty.all(AppColors.primaryHover),
+            ),
+            child: Text(
+              'Iniciar sesión',
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            const Expanded(child: Divider(color: AppColors.line, height: 1)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                'O',
+                style: AppTextStyles.metadato.copyWith(color: AppColors.placeholder),
+              ),
+            ),
+            const Expanded(child: Divider(color: AppColors.line, height: 1)),
+          ],
+        ),
+        const SizedBox(height: 20),
+        OutlinedButton(
+          onPressed: () {},
+          style: OutlinedButton.styleFrom(
+            backgroundColor: Colors.white,
+            side: const BorderSide(color: AppColors.inputBorder, width: 1.5),
+            padding: const EdgeInsets.symmetric(vertical: 13),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const _GoogleLogo(size: 18),
+              const SizedBox(width: 10),
+              Text(
+                'Continuar con Google',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: _labelColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 26),
+        Wrap(
+          alignment: WrapAlignment.center,
+          children: [
+            Text(
+              '¿Tu empresa aún no está aquí? ',
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: AppColors.textMuted,
+              ),
+            ),
+            GestureDetector(
+              onTap: () => context.go('/register'),
+              child: Text(
+                'Regístrala',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuccess() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(
+        children: [
+          Container(
+            width: 74,
+            height: 74,
+            decoration: const BoxDecoration(
+              color: AppColors.aprobadoBg,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.check_rounded,
+              size: 34,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(height: 22),
+          Text('¡Sesión iniciada!', style: AppTextStyles.tituloVista),
+          const SizedBox(height: 8),
+          Text(
+            'Te llevamos al panel de tu empresa.',
+            style: AppTextStyles.cuerpo.copyWith(height: 1.5),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 26),
+          OutlinedButton(
+            onPressed: _logout,
+            style: OutlinedButton.styleFrom(
+              backgroundColor: Colors.white,
+              side: const BorderSide(color: _logoutBorder, width: 1.5),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+            ),
+            child: Text(
+              'Cerrar sesión',
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _label(String text) => Text(
+        text,
+        style: GoogleFonts.hankenGrotesk(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: _labelColor,
+        ),
+      );
+}
+
+/// Recreación simplificada del logo de Google (sin asset externo) para el
+/// botón "Continuar con Google" — ver README → Assets.
+class _GoogleLogo extends StatelessWidget {
+  const _GoogleLogo({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: Size.square(size),
+      painter: _GoogleLogoPainter(),
+    );
+  }
+}
+
+class _GoogleLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final strokeWidth = radius * 0.62;
+    final rect = Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth;
+
+    const fullCircle = 6.28318530718; // 2π
+    const gap = 0.18;
+
+    canvas.drawArc(rect, -0.55, fullCircle / 4 - gap, false, paint..color = const Color(0xFF4285F4));
+    canvas.drawArc(rect, -0.55 + fullCircle / 4, fullCircle / 4 - gap, false, paint..color = const Color(0xFF34A853));
+    canvas.drawArc(rect, -0.55 + fullCircle / 2, fullCircle / 4 - gap, false, paint..color = const Color(0xFFFBBC05));
+    canvas.drawArc(rect, -0.55 + 3 * fullCircle / 4, fullCircle / 4 - gap, false, paint..color = const Color(0xFFEA4335));
+
+    // Barra horizontal característica de la "G".
+    final barPaint = Paint()..color = const Color(0xFF4285F4);
+    canvas.drawRect(
+      Rect.fromLTWH(center.dx - 1, center.dy - strokeWidth / 2.6, radius - strokeWidth / 2 + 1, strokeWidth / 2.4),
+      barPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
