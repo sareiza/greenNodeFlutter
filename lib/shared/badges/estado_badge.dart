@@ -5,12 +5,17 @@ import '../../core/constants/app_colors.dart';
 import '../../data/mock_data.dart';
 
 /// Badge de estado reutilizable (Pendiente / En revisión / Aprobado / Rechazado).
+///
+/// Para estados que no son [EstadoCotizacion] (p. ej. los estados de
+/// proyecto del panel admin) usa [EstadoBadge.custom] entregando los
+/// colores y la etiqueta directamente.
 class EstadoBadge extends StatelessWidget {
-  final EstadoCotizacion estado;
-  const EstadoBadge(this.estado, {super.key});
+  final Color _bg;
+  final Color _fg;
+  final Color _dot;
+  final String _label;
 
-  @override
-  Widget build(BuildContext context) {
+  factory EstadoBadge(EstadoCotizacion estado, {Key? key}) {
     final (Color bg, Color fg, Color dot, String label) = switch (estado) {
       EstadoCotizacion.aprobada => (
           AppColors.aprobadoBg,
@@ -37,11 +42,26 @@ class EstadoBadge extends StatelessWidget {
           'Pendiente',
         ),
     };
+    return EstadoBadge.custom(bg: bg, fg: fg, dot: dot, label: label, key: key);
+  }
 
+  const EstadoBadge.custom({
+    required Color bg,
+    required Color fg,
+    required Color dot,
+    required String label,
+    super.key,
+  })  : _bg = bg,
+        _fg = fg,
+        _dot = dot,
+        _label = label;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
       decoration: BoxDecoration(
-        color: bg,
+        color: _bg,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -50,15 +70,15 @@ class EstadoBadge extends StatelessWidget {
           Container(
             width: 7,
             height: 7,
-            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: _dot, shape: BoxShape.circle),
           ),
           const SizedBox(width: 7),
           Text(
-            label,
+            _label,
             style: GoogleFonts.hankenGrotesk(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: fg,
+              color: _fg,
             ),
           ),
         ],

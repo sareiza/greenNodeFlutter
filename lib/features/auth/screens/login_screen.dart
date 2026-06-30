@@ -29,6 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _remember = false;
   bool _loggedIn = false;
+  bool _isAdmin = false;
 
   @override
   void dispose() {
@@ -38,11 +39,20 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _login() {
-    setState(() => _loggedIn = true);
+    setState(() { _loggedIn = true; _isAdmin = false; });
     context.read<AuthProvider>().login(email: _emailController.text.trim());
     final router = GoRouter.of(context);
     Future.delayed(const Duration(milliseconds: 900), () {
       if (mounted) router.go('/proyecto');
+    });
+  }
+
+  void _adminLogin() {
+    setState(() { _loggedIn = true; _isAdmin = true; });
+    context.read<AuthProvider>().login(email: _emailController.text.trim());
+    final router = GoRouter.of(context);
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) router.go('/admin/dashboard');
     });
   }
 
@@ -286,6 +296,19 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
+        const SizedBox(height: 20),
+        GestureDetector(
+          onTap: _adminLogin,
+          child: Text(
+            '¿Eres administrador? Accede aquí',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.hankenGrotesk(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppColors.placeholder,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -312,7 +335,9 @@ class _LoginScreenState extends State<LoginScreen> {
           Text('¡Sesión iniciada!', style: AppTextStyles.tituloVista),
           const SizedBox(height: 8),
           Text(
-            'Te llevamos al panel de tu empresa.',
+            _isAdmin
+                ? 'Te llevamos al panel de administración.'
+                : 'Te llevamos al panel de tu empresa.',
             style: AppTextStyles.cuerpo.copyWith(height: 1.5),
             textAlign: TextAlign.center,
           ),

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/admin_cotizaciones/screens/cotizacion_detalle_admin_screen.dart';
+import '../../features/admin_cotizaciones/screens/cotizaciones_pendientes_screen.dart';
+import '../../features/admin_dashboard/screens/dashboard_screen.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
@@ -81,6 +84,28 @@ final appRouter = GoRouter(
           ),
         ),
       ],
+    ),
+    // Panel admin: fuera del rail de empresa, con su propio layout.
+    GoRoute(
+      path: '/admin/dashboard',
+      builder: (context, state) => const DashboardScreen(),
+    ),
+    GoRoute(
+      path: '/admin/proyecto/:id',
+      builder: (context, state) => ComingSoonScreen(
+        title: 'Proyecto ${state.pathParameters['id']}',
+        subtitle: 'Detalle de proyecto (admin) — próximamente.',
+        icon: Icons.eco_outlined,
+      ),
+    ),
+    GoRoute(
+      path: '/admin/cotizaciones',
+      builder: (context, state) => const CotizacionesPendientesScreen(),
+    ),
+    GoRoute(
+      path: '/admin/cotizaciones/:id',
+      builder: (context, state) =>
+          CotizacionDetalleAdminScreen(id: state.pathParameters['id']!),
     ),
   ],
 );
