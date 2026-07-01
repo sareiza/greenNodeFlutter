@@ -194,6 +194,136 @@ class CotizacionAdminItem {
   });
 }
 
+// ─── Empresas Admin ────────────────────────────────────────────────────────────
+
+enum EstadoEmpresa { activa, inactiva }
+
+class EmpresaAdmin {
+  final String nombre;
+  final String nit;
+  final String sector;
+  final int empleados;
+  final EstadoEmpresa estado;
+
+  const EmpresaAdmin({
+    required this.nombre,
+    required this.nit,
+    required this.sector,
+    required this.empleados,
+    required this.estado,
+  });
+}
+
+const mockEmpresas = [
+  EmpresaAdmin(nombre: 'Constructora Verde S.A.', nit: '900.123.456-7', sector: 'Construcción', empleados: 50, estado: EstadoEmpresa.activa),
+  EmpresaAdmin(nombre: 'Lácteos del Valle', nit: '800.234.567-8', sector: 'Alimentos', empleados: 120, estado: EstadoEmpresa.activa),
+  EmpresaAdmin(nombre: 'Minería Responsable Ltda.', nit: '700.345.678-9', sector: 'Minería', empleados: 200, estado: EstadoEmpresa.activa),
+  EmpresaAdmin(nombre: 'Textiles Norte', nit: '600.456.789-0', sector: 'Manufactura', empleados: 85, estado: EstadoEmpresa.inactiva),
+  EmpresaAdmin(nombre: 'Banco Andino', nit: '500.567.890-1', sector: 'Finanzas', empleados: 340, estado: EstadoEmpresa.activa),
+  EmpresaAdmin(nombre: 'Hidroeléctrica del Sur', nit: '400.678.901-2', sector: 'Energía', empleados: 95, estado: EstadoEmpresa.activa),
+];
+
+// ─── Cotizaciones Admin ────────────────────────────────────────────────────────
+
+// ─── Proyectos Admin Detalle ───────────────────────────────────────────────────
+
+enum EstadoIA { validado, pendiente, rechazado, validandoIA }
+
+class EvidenciaAdmin {
+  final String id;
+  EstadoIA estadoIA;
+  final String fecha;
+
+  EvidenciaAdmin({
+    required this.id,
+    required this.estadoIA,
+    required this.fecha,
+  });
+}
+
+class ProyectoAdminDetalle {
+  final String id;
+  final String nombre;
+  final String empresa;
+  EstadoProyectoAdmin estado;
+  double avance;
+  final String fechaInicio;
+  String marcoLogico;
+  List<EvidenciaAdmin> evidencias;
+
+  ProyectoAdminDetalle({
+    required this.id,
+    required this.nombre,
+    required this.empresa,
+    required this.estado,
+    required this.avance,
+    required this.fechaInicio,
+    required this.marcoLogico,
+    required this.evidencias,
+  });
+}
+
+final mockProyectosAdmin = [
+  ProyectoAdminDetalle(
+    id: 'PRO-001',
+    nombre: 'Bosque Constructora Verde',
+    empresa: 'Constructora Verde S.A.',
+    estado: EstadoProyectoAdmin.enProgreso,
+    avance: 0.45,
+    fechaInicio: '20 ene 2026',
+    marcoLogico:
+        'Plan de restauración para zona de ronda hídrica en el Área de Vida Medellín Norte. '
+        'Se plantarán 500 árboles nativos andinos (Nogal cafetero y Cedro negro) con supervisión trimestral. '
+        'Objetivo: 11 t CO₂/año capturado al alcanzar madurez. Fase actual: establecimiento y primeros monitoreos.',
+    evidencias: [
+      EvidenciaAdmin(id: 'EV-001', estadoIA: EstadoIA.validado, fecha: '20 ene 2026'),
+      EvidenciaAdmin(id: 'EV-002', estadoIA: EstadoIA.validado, fecha: '21 ene 2026'),
+      EvidenciaAdmin(id: 'EV-003', estadoIA: EstadoIA.pendiente, fecha: '20 abr 2026'),
+      EvidenciaAdmin(id: 'EV-004', estadoIA: EstadoIA.rechazado, fecha: '21 abr 2026'),
+    ],
+  ),
+  ProyectoAdminDetalle(
+    id: 'PRO-002',
+    nombre: 'Reforestación Lácteos del Valle',
+    empresa: 'Lácteos del Valle',
+    estado: EstadoProyectoAdmin.enProgreso,
+    avance: 0.62,
+    fechaInicio: '10 feb 2026',
+    marcoLogico:
+        'Corredor biológico de 1 200 árboles en los Montes de María, Bolívar. '
+        'Especies: Trupillo (Prosopis juliflora) y Caracolí (Anacardium excelsum), tolerantes a la estacionalidad hídrica. '
+        'Objetivo: reducir erosión en cuencas abastecedoras y capturar 26.4 t CO₂/año. Plazo: 30 meses.',
+    evidencias: [],
+  ),
+  ProyectoAdminDetalle(
+    id: 'PRO-003',
+    nombre: 'Bosque Andino Textiles Norte',
+    empresa: 'Textiles Norte',
+    estado: EstadoProyectoAdmin.completado,
+    avance: 1.0,
+    fechaInicio: '01 jun 2025',
+    marcoLogico:
+        'Proyecto de bosque andino completado exitosamente. '
+        'Se establecieron 250 árboles de Roble (Quercus humboldtii) y Yarumo (Cecropia peltata) '
+        'en el Área de Vida Medellín Norte, logrando supervivencia del 96% al cierre del ciclo.',
+    evidencias: [],
+  ),
+  ProyectoAdminDetalle(
+    id: 'PRO-004',
+    nombre: 'Cuenca Verde Banco Andino',
+    empresa: 'Banco Andino',
+    estado: EstadoProyectoAdmin.enProgreso,
+    avance: 0.18,
+    fechaInicio: '15 mar 2026',
+    marcoLogico:
+        'Corredor de restauración amazónico de 3 000 árboles en el Bajo Caquetá. '
+        'El proyecto conecta dos reservas naturales vecinas y busca generar 66 t CO₂/año. '
+        'Especies: Abarco (Cariniana pyriformis) y Cedro rosado (Cedrela odorata). '
+        'Fase actual: siembra inicial y establecimiento de convenio con comunidad local.',
+    evidencias: [],
+  ),
+];
+
 const mockCotizacionesAdmin = [
   CotizacionAdminItem(
     id: 'COT-A-001',

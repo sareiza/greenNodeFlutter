@@ -7,37 +7,42 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/mock_admin_data.dart';
 import '../../../shared/badges/estado_badge.dart';
 
-// ─── Colores puntuales del mockup ────────────────────────────────────────────
 const _cardShadow = [
   BoxShadow(color: Color(0x12102A1C), blurRadius: 24, offset: Offset(0, 8)),
 ];
 const _hoverBorder = Color(0xFFBFE2CC);
-const _hoverShadow = Color(0x0F102A1C);
-// ─────────────────────────────────────────────────────────────────────────────
 
-enum _Filtro { todas, pendiente, enRevision }
+// ─── Filtro ───────────────────────────────────────────────────────────────────
 
-class CotizacionesPendientesScreen extends StatefulWidget {
-  const CotizacionesPendientesScreen({super.key});
+enum _FiltroP { todos, enProgreso, completado, cancelado }
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
+class ProyectosAdminScreen extends StatefulWidget {
+  const ProyectosAdminScreen({super.key});
 
   @override
-  State<CotizacionesPendientesScreen> createState() => _CotizacionesPendientesScreenState();
+  State<ProyectosAdminScreen> createState() => _ProyectosAdminScreenState();
 }
 
-class _CotizacionesPendientesScreenState extends State<CotizacionesPendientesScreen> {
-  _Filtro _filtro = _Filtro.todas;
+class _ProyectosAdminScreenState extends State<ProyectosAdminScreen> {
+  _FiltroP _filtro = _FiltroP.todos;
 
-  List<CotizacionAdminItem> get _items {
+  List<ProyectoAdminDetalle> get _items {
     switch (_filtro) {
-      case _Filtro.todas:
-        return mockCotizacionesAdmin;
-      case _Filtro.pendiente:
-        return mockCotizacionesAdmin
-            .where((c) => c.estado == EstadoCotizacionAdmin.pendiente)
+      case _FiltroP.todos:
+        return mockProyectosAdmin;
+      case _FiltroP.enProgreso:
+        return mockProyectosAdmin
+            .where((p) => p.estado == EstadoProyectoAdmin.enProgreso)
             .toList();
-      case _Filtro.enRevision:
-        return mockCotizacionesAdmin
-            .where((c) => c.estado == EstadoCotizacionAdmin.enRevision)
+      case _FiltroP.completado:
+        return mockProyectosAdmin
+            .where((p) => p.estado == EstadoProyectoAdmin.completado)
+            .toList();
+      case _FiltroP.cancelado:
+        return mockProyectosAdmin
+            .where((p) => p.estado == EstadoProyectoAdmin.cancelado)
             .toList();
     }
   }
@@ -65,10 +70,10 @@ class _CotizacionesPendientesScreenState extends State<CotizacionesPendientesScr
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Cotizaciones pendientes', style: AppTextStyles.tituloVista),
+                    Text('Proyectos', style: AppTextStyles.tituloVista),
                     const SizedBox(height: 6),
                     Text(
-                      'Revisa y gestiona las solicitudes de las empresas',
+                      'Gestión de proyectos activos',
                       style: GoogleFonts.hankenGrotesk(
                         fontSize: 15,
                         fontWeight: FontWeight.w400,
@@ -91,15 +96,18 @@ class _CotizacionesPendientesScreenState extends State<CotizacionesPendientesScr
                 child: _items.isEmpty
                     ? Center(
                         child: Text(
-                          'No hay cotizaciones para este filtro.',
-                          style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted),
+                          'No hay proyectos para este filtro.',
+                          style: GoogleFonts.hankenGrotesk(
+                            fontSize: 14,
+                            color: AppColors.textMuted,
+                          ),
                         ),
                       )
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(38, 0, 38, 32),
                         itemCount: _items.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 12),
-                        itemBuilder: (context, i) => _CotizacionCard(_items[i]),
+                        itemBuilder: (context, i) => _ProyectoCard(_items[i]),
                       ),
               ),
             ],
@@ -110,19 +118,20 @@ class _CotizacionesPendientesScreenState extends State<CotizacionesPendientesScr
   }
 }
 
-// ─── Filtro ─────────────────────────────────────────────────────────────────
+// ─── Filtro chips ─────────────────────────────────────────────────────────────
 
 class _FiltroBar extends StatelessWidget {
-  final _Filtro selected;
-  final ValueChanged<_Filtro> onChanged;
+  final _FiltroP selected;
+  final ValueChanged<_FiltroP> onChanged;
   const _FiltroBar({required this.selected, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     const chips = [
-      (_Filtro.todas, 'Todas'),
-      (_Filtro.pendiente, 'Pendientes'),
-      (_Filtro.enRevision, 'En revisión'),
+      (_FiltroP.todos, 'Todos'),
+      (_FiltroP.enProgreso, 'En progreso'),
+      (_FiltroP.completado, 'Completados'),
+      (_FiltroP.cancelado, 'Cancelados'),
     ];
     return Wrap(
       spacing: 8,
@@ -176,79 +185,128 @@ class _FiltroChip extends StatelessWidget {
   }
 }
 
-// ─── Tarjeta de cotización ──────────────────────────────────────────────────
+// ─── Tarjeta de proyecto ──────────────────────────────────────────────────────
 
-class _CotizacionCard extends StatefulWidget {
-  final CotizacionAdminItem cotizacion;
-  const _CotizacionCard(this.cotizacion);
+(Color bg, Color fg, Color dot, String label) _estadoProyectoVisual(
+    EstadoProyectoAdmin e) =>
+    switch (e) {
+      EstadoProyectoAdmin.enProgreso =>
+        (AppColors.enRevisionBg, AppColors.enRevisionText, AppColors.enRevisionDot, 'En progreso'),
+      EstadoProyectoAdmin.completado =>
+        (AppColors.aprobadoBg, AppColors.aprobadoText, AppColors.aprobadoDot, 'Completado'),
+      EstadoProyectoAdmin.cancelado =>
+        (AppColors.rechazadoBg, AppColors.rechazadoText, AppColors.rechazadoDot, 'Cancelado'),
+    };
+
+class _ProyectoCard extends StatefulWidget {
+  final ProyectoAdminDetalle proyecto;
+  const _ProyectoCard(this.proyecto);
 
   @override
-  State<_CotizacionCard> createState() => _CotizacionCardState();
+  State<_ProyectoCard> createState() => _ProyectoCardState();
 }
 
-class _CotizacionCardState extends State<_CotizacionCard> {
+class _ProyectoCardState extends State<_ProyectoCard> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.cotizacion;
-    final (bg, fg, dot) = c.estado == EstadoCotizacionAdmin.pendiente
-        ? (AppColors.pendienteBg, AppColors.pendienteText, AppColors.pendienteDot)
-        : (AppColors.enRevisionBg, AppColors.enRevisionText, AppColors.enRevisionDot);
-    final label = c.estado == EstadoCotizacionAdmin.pendiente ? 'Pendiente' : 'En revisión';
+    final p = widget.proyecto;
+    final (bg, fg, dot, label) = _estadoProyectoVisual(p.estado);
+    final pct = (p.avance * 100).round();
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: () => context.go('/admin/cotizaciones/${c.id}'),
+        onTap: () => context.go('/admin/proyecto/${p.id}'),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _hovered ? _hoverBorder : AppColors.line, width: 1),
-            boxShadow: _hovered
-                ? const [BoxShadow(color: _hoverShadow, blurRadius: 14, offset: Offset(0, 4))]
-                : _cardShadow,
+            border: Border.all(
+              color: _hovered ? _hoverBorder : AppColors.line,
+              width: 1,
+            ),
+            boxShadow: _cardShadow,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text(
-                      c.empresa,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.ink,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          p.nombre,
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          p.empresa,
+                          style: GoogleFonts.hankenGrotesk(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textSubtle,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 12),
                   EstadoBadge.custom(bg: bg, fg: fg, dot: dot, label: label),
                 ],
               ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 20,
-                runSpacing: 6,
-                children: [
-                  _MetaItem(icon: Icons.location_on_outlined, text: c.territorio),
-                  _MetaItem(icon: Icons.park_outlined, text: '${c.arboles} árboles'),
-                ],
-              ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 14),
               Row(
                 children: [
-                  const Icon(Icons.calendar_today_outlined, size: 13, color: AppColors.placeholder),
+                  Text(
+                    'Avance',
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSubtle,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '$pct%',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: p.avance,
+                  minHeight: 7,
+                  backgroundColor: AppColors.line,
+                  valueColor: AlwaysStoppedAnimation<Color>(dot),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today_outlined,
+                      size: 13, color: AppColors.placeholder),
                   const SizedBox(width: 5),
                   Text(
-                    c.fecha,
+                    p.fechaInicio,
                     style: GoogleFonts.hankenGrotesk(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -270,27 +328,6 @@ class _CotizacionCardState extends State<_CotizacionCard> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _MetaItem extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _MetaItem({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: AppColors.textSubtle),
-        const SizedBox(width: 5),
-        Text(
-          text,
-          style: GoogleFonts.hankenGrotesk(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textMuted),
-        ),
-      ],
     );
   }
 }

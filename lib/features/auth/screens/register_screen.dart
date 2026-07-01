@@ -189,7 +189,7 @@ class _RegisterViewState extends State<_RegisterView> {
                       ? provider.nextStep
                       : () {
                           provider.register();
-                          context.read<AuthProvider>().login(email: provider.empEmail);
+                          context.read<AuthProvider>().loginDirecto(email: provider.empEmail);
                           final router = GoRouter.of(context);
                           Future.delayed(const Duration(milliseconds: 900), () {
                             if (mounted) router.go('/proyecto');

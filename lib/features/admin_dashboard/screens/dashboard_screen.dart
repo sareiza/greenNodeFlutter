@@ -2,12 +2,10 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/mock_admin_data.dart';
-import '../../../features/auth/providers/auth_provider.dart';
 import '../../../shared/badges/estado_badge.dart';
 
 // ─── Colores puntuales del mockup ────────────────────────────────────────────
@@ -89,42 +87,17 @@ class _PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Dashboard', style: AppTextStyles.tituloVista),
-              const SizedBox(height: 6),
-              Text(
-                'Resumen general de GreenNode',
-                style: GoogleFonts.hankenGrotesk(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w400,
-                  color: AppColors.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
-        OutlinedButton.icon(
-          onPressed: () {
-            context.read<AuthProvider>().logout();
-            context.go('/login');
-          },
-          icon: const Icon(Icons.logout_rounded, size: 16),
-          label: Text(
-            'Cerrar sesión',
-            style: GoogleFonts.hankenGrotesk(fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.primary,
-            backgroundColor: Colors.white,
-            side: const BorderSide(color: Color(0xFFBFE2CC), width: 1.5),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        Text('Dashboard', style: AppTextStyles.tituloVista),
+        const SizedBox(height: 6),
+        Text(
+          'Resumen general de GreenNode',
+          style: GoogleFonts.hankenGrotesk(
+            fontSize: 15,
+            fontWeight: FontWeight.w400,
+            color: AppColors.textMuted,
           ),
         ),
       ],

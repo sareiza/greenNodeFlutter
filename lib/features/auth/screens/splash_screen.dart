@@ -21,7 +21,13 @@ class _SplashScreenState extends State<SplashScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.go(authProvider.isLoggedIn ? '/proyecto' : '/login');
+      if (authProvider.isLoggedIn) {
+        context.go(
+          authProvider.rolActual == 'admin' ? '/admin/dashboard' : '/proyecto',
+        );
+      } else {
+        context.go('/');
+      }
     });
   }
 

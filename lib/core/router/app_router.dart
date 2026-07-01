@@ -4,6 +4,10 @@ import 'package:go_router/go_router.dart';
 import '../../features/admin_cotizaciones/screens/cotizacion_detalle_admin_screen.dart';
 import '../../features/admin_cotizaciones/screens/cotizaciones_pendientes_screen.dart';
 import '../../features/admin_dashboard/screens/dashboard_screen.dart';
+import '../../features/admin_empresas/screens/empresas_screen.dart';
+import '../../features/admin_proyecto/screens/proyectos_admin_screen.dart';
+import '../../features/admin_proyecto/screens/proyecto_detalle_admin_screen.dart';
+import '../../features/landing/screens/landing_screen.dart';
 import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
@@ -21,18 +25,37 @@ import '../../main.dart';
 /// autenticado en [authProvider]; si no lo está, `redirect` la manda a
 /// `/login` — esto es lo que evita que el botón "atrás" del navegador
 /// regrese a una pantalla protegida después de cerrar sesión.
-const _publicPaths = {'/splash', '/login', '/register'};
+const _publicPaths = {'/', '/splash', '/login', '/register'};
 
 final appRouter = GoRouter(
   initialLocation: '/splash',
   refreshListenable: authProvider,
   redirect: (context, state) {
     final loggedIn = authProvider.isLoggedIn;
+    final rol = authProvider.rolActual;
     final loc = state.matchedLocation;
+
+    // Sin sesión → login
     if (!loggedIn && !_publicPaths.contains(loc)) return '/login';
+
+    // Empresa intentando acceder a rutas de admin
+    if (loggedIn && rol == 'empresa' && loc.startsWith('/admin')) {
+      return '/proyecto';
+    }
+
+    // Admin intentando acceder a rutas de empresa
+    if (loggedIn && rol == 'admin' && !loc.startsWith('/admin') && !_publicPaths.contains(loc)) {
+      return '/admin/dashboard';
+    }
+
     return null;
   },
   routes: [
+    // Landing pública (antes de registrarse).
+    GoRoute(
+      path: '/',
+      builder: (context, state) => const LandingScreen(),
+    ),
     // Fuera del rail: pantallas previas a "entrar" a la app.
     GoRoute(
       path: '/splash',
@@ -85,27 +108,38 @@ final appRouter = GoRouter(
         ),
       ],
     ),
-    // Panel admin: fuera del rail de empresa, con su propio layout.
-    GoRoute(
-      path: '/admin/dashboard',
-      builder: (context, state) => const DashboardScreen(),
-    ),
-    GoRoute(
-      path: '/admin/proyecto/:id',
-      builder: (context, state) => ComingSoonScreen(
-        title: 'Proyecto ${state.pathParameters['id']}',
-        subtitle: 'Detalle de proyecto (admin) — próximamente.',
-        icon: Icons.eco_outlined,
-      ),
-    ),
-    GoRoute(
-      path: '/admin/cotizaciones',
-      builder: (context, state) => const CotizacionesPendientesScreen(),
-    ),
-    GoRoute(
-      path: '/admin/cotizaciones/:id',
-      builder: (context, state) =>
-          CotizacionDetalleAdminScreen(id: state.pathParameters['id']!),
+    // Panel admin: shell propio con rail lateral.
+    ShellRoute(
+      builder: (context, state, child) =>
+          AdminShell(location: state.uri.toString(), child: child),
+      routes: [
+        GoRoute(
+          path: '/admin/dashboard',
+          builder: (context, state) => const DashboardScreen(),
+        ),
+        GoRoute(
+          path: '/admin/cotizaciones',
+          builder: (context, state) => const CotizacionesPendientesScreen(),
+        ),
+        GoRoute(
+          path: '/admin/cotizaciones/:id',
+          builder: (context, state) =>
+              CotizacionDetalleAdminScreen(id: state.pathParameters['id']!),
+        ),
+        GoRoute(
+          path: '/admin/empresas',
+          builder: (context, state) => const EmpresasScreen(),
+        ),
+        GoRoute(
+          path: '/admin/proyectos',
+          builder: (context, state) => const ProyectosAdminScreen(),
+        ),
+        GoRoute(
+          path: '/admin/proyecto/:id',
+          builder: (context, state) =>
+              ProyectoDetalleAdminScreen(id: state.pathParameters['id']!),
+        ),
+      ],
     ),
   ],
 );

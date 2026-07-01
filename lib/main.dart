@@ -64,6 +64,15 @@ const _railGroups = [
   ]),
 ];
 
+const _adminRailGroups = [
+  _RailGroup('Panel de administración', [
+    _RailItem('Dashboard', Icons.dashboard_outlined, '/admin/dashboard'),
+    _RailItem('Cotizaciones', Icons.description_outlined, '/admin/cotizaciones'),
+    _RailItem('Empresas', Icons.business_outlined, '/admin/empresas'),
+    _RailItem('Proyectos', Icons.forest_outlined, '/admin/proyectos'),
+  ]),
+];
+
 /// Ancho mínimo a partir del cual se muestra el rail lateral fijo. Por
 /// debajo de este ancho (móvil) el rail se reemplaza por un [Drawer].
 const _railBreakpoint = 800.0;
@@ -392,6 +401,158 @@ class _RailStatCard extends StatelessWidget {
               height: 1.4,
               color: Colors.white.withValues(alpha: 0.62),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Admin shell: rail lateral + panel de contenido (panel admin) ─────────────
+
+class AdminShell extends StatelessWidget {
+  final String location;
+  final Widget child;
+  const AdminShell({super.key, required this.location, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= _railBreakpoint) {
+          return Scaffold(
+            body: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _AdminRail(activePath: location),
+                Expanded(child: child),
+              ],
+            ),
+          );
+        }
+        return Scaffold(
+          appBar: AppBar(
+            backgroundColor: AppColors.forest,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            title: const GreenNodeLogo(
+              size: 22,
+              leafColor: AppColors.mint,
+              textColor: Colors.white,
+            ),
+          ),
+          drawer: Drawer(
+            width: 280,
+            backgroundColor: Colors.transparent,
+            child: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [AppColors.forest, AppColors.forestDeep],
+                ),
+              ),
+              child: _AdminRailContent(activePath: location, insideDrawer: true),
+            ),
+          ),
+          body: child,
+        );
+      },
+    );
+  }
+}
+
+class _AdminRail extends StatelessWidget {
+  final String activePath;
+  const _AdminRail({required this.activePath});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 264,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [AppColors.forest, AppColors.forestDeep],
+        ),
+      ),
+      child: _AdminRailContent(activePath: activePath, insideDrawer: false),
+    );
+  }
+}
+
+class _AdminRailContent extends StatelessWidget {
+  final String activePath;
+  final bool insideDrawer;
+  const _AdminRailContent({required this.activePath, required this.insideDrawer});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 28, 24, 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: GreenNodeLogo(
+                size: 24,
+                leafColor: AppColors.mint,
+                textColor: Colors.white,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 18),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Panel de administración',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final group in _adminRailGroups) ...[
+                    _RailGroupLabel(group.title),
+                    const SizedBox(height: 6),
+                    for (final item in group.items)
+                      _RailMenuItem(
+                        item: item,
+                        active: activePath == item.path ||
+                            (item.path == '/admin/proyectos' &&
+                                activePath.startsWith('/admin/proyecto')) ||
+                            (item.path != '/admin/dashboard' &&
+                                item.path != '/admin/proyectos' &&
+                                activePath.startsWith(item.path)),
+                        onTap: () {
+                          context.go(item.path);
+                          if (insideDrawer) Navigator.of(context).pop();
+                        },
+                      ),
+                    const SizedBox(height: 20),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
+            child: Divider(color: Colors.white.withValues(alpha: 0.12), height: 1),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(6, 8, 6, 16),
+            child: _LogoutButton(insideDrawer: insideDrawer),
           ),
         ],
       ),

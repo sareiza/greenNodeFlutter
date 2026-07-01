@@ -8,9 +8,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/greennode_logo.dart';
 import '../providers/auth_provider.dart';
 
-/// Valores puntuales del mockup que no forman parte de los Design Tokens
-/// (tabla "Colores de marca"/"Colores de estado" del README) pero aparecen
-/// en la referencia HTML de la sección "1. Iniciar sesión".
 const _labelColor = Color(0xFF28392F);
 const _rememberTextColor = Color(0xFF3E4F44);
 const _logoutBorder = Color(0xFFBFE2CC);
@@ -29,7 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _remember = false;
   bool _loggedIn = false;
-  bool _isAdmin = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -39,26 +36,30 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _login() {
-    setState(() { _loggedIn = true; _isAdmin = false; });
-    context.read<AuthProvider>().login(email: _emailController.text.trim());
-    final router = GoRouter.of(context);
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) router.go('/proyecto');
-    });
-  }
-
-  void _adminLogin() {
-    setState(() { _loggedIn = true; _isAdmin = true; });
-    context.read<AuthProvider>().login(email: _emailController.text.trim());
-    final router = GoRouter.of(context);
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) router.go('/admin/dashboard');
-    });
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    try {
+      context.read<AuthProvider>().login(email: email, password: password);
+      setState(() {
+        _loggedIn = true;
+        _error = null;
+      });
+      final rol = authProvider.rolActual;
+      final router = GoRouter.of(context);
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (mounted) {
+          router.go(rol == 'admin' ? '/admin/dashboard' : '/proyecto');
+        }
+      });
+    } catch (_) {
+      setState(() => _error = 'Credenciales inválidas. Revisa tu email y contraseña.');
+    }
   }
 
   void _logout() {
     setState(() {
       _loggedIn = false;
+      _error = null;
       _emailController.clear();
       _passwordController.clear();
       _obscurePassword = true;
@@ -116,11 +117,12 @@ class _LoginScreenState extends State<LoginScreen> {
           style: AppTextStyles.cuerpo,
         ),
         const SizedBox(height: 30),
-        _label('Email corporativo'),
+        _label('Email'),
         const SizedBox(height: 7),
         TextField(
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
+          onChanged: (_) { if (_error != null) setState(() => _error = null); },
           style: GoogleFonts.hankenGrotesk(
             fontSize: 15,
             fontWeight: FontWeight.w400,
@@ -138,6 +140,8 @@ class _LoginScreenState extends State<LoginScreen> {
         TextField(
           controller: _passwordController,
           obscureText: _obscurePassword,
+          onChanged: (_) { if (_error != null) setState(() => _error = null); },
+          onSubmitted: (_) => _login(),
           style: GoogleFonts.hankenGrotesk(
             fontSize: 15,
             fontWeight: FontWeight.w400,
@@ -168,6 +172,38 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
+        // Error de credenciales
+        if (_error != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.rechazadoBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppColors.rechazadoDot.withValues(alpha: 0.25),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline_rounded,
+                    size: 16, color: AppColors.rechazadoDot),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _error!,
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.rechazadoText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 26),
         Row(
           children: [
@@ -296,17 +332,46 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 20),
-        GestureDetector(
-          onTap: _adminLogin,
-          child: Text(
-            '¿Eres administrador? Accede aquí',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.hankenGrotesk(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: AppColors.placeholder,
-            ),
+        const SizedBox(height: 24),
+        // Credenciales de demo
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceTint,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.line, width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Credenciales de demo',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.6,
+                  color: AppColors.placeholder,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Demo empresa: empresa@greennode.com / 12345678',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSubtle,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Demo admin: admin@greennode.com / 12345678',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textSubtle,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -314,6 +379,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildSuccess() {
+    final esAdmin = authProvider.rolActual == 'admin';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 20),
       child: Column(
@@ -335,7 +401,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Text('¡Sesión iniciada!', style: AppTextStyles.tituloVista),
           const SizedBox(height: 8),
           Text(
-            _isAdmin
+            esAdmin
                 ? 'Te llevamos al panel de administración.'
                 : 'Te llevamos al panel de tu empresa.',
             style: AppTextStyles.cuerpo.copyWith(height: 1.5),
@@ -374,11 +440,9 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 }
 
-/// Recreación simplificada del logo de Google (sin asset externo) para el
-/// botón "Continuar con Google" — ver README → Assets.
+/// Recreación simplificada del logo de Google (sin asset externo).
 class _GoogleLogo extends StatelessWidget {
   const _GoogleLogo({required this.size});
-
   final double size;
 
   @override
@@ -402,7 +466,7 @@ class _GoogleLogoPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth;
 
-    const fullCircle = 6.28318530718; // 2π
+    const fullCircle = 6.28318530718;
     const gap = 0.18;
 
     canvas.drawArc(rect, -0.55, fullCircle / 4 - gap, false, paint..color = const Color(0xFF4285F4));
@@ -410,7 +474,6 @@ class _GoogleLogoPainter extends CustomPainter {
     canvas.drawArc(rect, -0.55 + fullCircle / 2, fullCircle / 4 - gap, false, paint..color = const Color(0xFFFBBC05));
     canvas.drawArc(rect, -0.55 + 3 * fullCircle / 4, fullCircle / 4 - gap, false, paint..color = const Color(0xFFEA4335));
 
-    // Barra horizontal característica de la "G".
     final barPaint = Paint()..color = const Color(0xFF4285F4);
     canvas.drawRect(
       Rect.fromLTWH(center.dx - 1, center.dy - strokeWidth / 2.6, radius - strokeWidth / 2 + 1, strokeWidth / 2.4),
