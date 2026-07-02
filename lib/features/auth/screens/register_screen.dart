@@ -5,17 +5,14 @@ import 'package:provider/provider.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/api_service.dart';
 import '../../../shared/widgets/greennode_logo.dart';
 import '../providers/auth_provider.dart';
 import '../providers/register_provider.dart';
 
-/// Valores puntuales del mockup que no forman parte de los Design Tokens
-/// del README pero aparecen en la referencia HTML de la sección
-/// "2. Registrar empresa".
-const _labelColor = Color(0xFF28392F);
+const _labelColor    = Color(0xFF28392F);
 const _termsTextColor = Color(0xFF3E4F44);
-const _termsBoxIdle = Color(0xFFCBD8CF);
-const _logoutBorder = Color(0xFFBFE2CC);
+const _termsBoxIdle  = Color(0xFFCBD8CF);
 
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
@@ -37,24 +34,72 @@ class _RegisterView extends StatefulWidget {
 }
 
 class _RegisterViewState extends State<_RegisterView> {
-  final _companyController = TextEditingController();
-  final _empEmailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmController = TextEditingController();
+  final _companyCtrl  = TextEditingController();
+  final _phoneCtrl    = TextEditingController();
+  final _emailCtrl    = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+  final _confirmCtrl  = TextEditingController();
+
+  bool _loading = false;
 
   @override
   void dispose() {
-    _companyController.dispose();
-    _empEmailController.dispose();
-    _passwordController.dispose();
-    _confirmController.dispose();
+    _companyCtrl.dispose();
+    _phoneCtrl.dispose();
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _confirmCtrl.dispose();
     super.dispose();
   }
 
+  // ─── Registro real contra el API ──────────────────────────────────────────
+
+  Future<void> _doRegister() async {
+    final provider = context.read<RegisterProvider>();
+
+    setState(() => _loading = true);
+    try {
+      await apiService.register({
+        'companyName': provider.company,
+        'email':       provider.empEmail,
+        'password':    provider.password,
+        'phone':       provider.phone,
+        'sector':      provider.sector,
+      });
+
+      // El registro no devuelve token — hacemos login automático
+      await apiService.login(provider.empEmail, provider.password);
+
+      if (!mounted) return;
+
+      context.read<AuthProvider>().loginDirecto(email: provider.empEmail, sector: provider.sector);
+
+      context.go('/proyecto');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+            style: GoogleFonts.hankenGrotesk(
+                fontWeight: FontWeight.w500, color: Colors.white),
+          ),
+          backgroundColor: AppColors.rechazadoDot,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(20),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ─── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final registered = context.select<RegisterProvider, bool>((p) => p.registered);
-
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -72,7 +117,7 @@ class _RegisterViewState extends State<_RegisterView> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 460),
-              child: registered ? const _SuccessState() : _buildForm(context),
+              child: _buildForm(context),
             ),
           ),
         ),
@@ -99,11 +144,10 @@ class _RegisterViewState extends State<_RegisterView> {
           ),
         ),
         const SizedBox(height: 6),
-        Text(
-          'Tres pasos rápidos para empezar a plantar.',
-          style: AppTextStyles.cuerpo,
-        ),
+        Text('Tres pasos rápidos para empezar a plantar.', style: AppTextStyles.cuerpo),
         const SizedBox(height: 28),
+
+        // ── Barra de progreso ───────────────────────────────────────────────
         Row(
           children: [
             Expanded(
@@ -117,7 +161,7 @@ class _RegisterViewState extends State<_RegisterView> {
                 child: TweenAnimationBuilder<double>(
                   duration: const Duration(milliseconds: 300),
                   tween: Tween(begin: 0, end: provider.progress),
-                  builder: (context, value, child) => FractionallySizedBox(
+                  builder: (_, value, _) => FractionallySizedBox(
                     alignment: Alignment.centerLeft,
                     widthFactor: value,
                     child: Container(
@@ -134,24 +178,26 @@ class _RegisterViewState extends State<_RegisterView> {
             Text(
               provider.stepLabel,
               style: GoogleFonts.hankenGrotesk(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textMuted,
-              ),
+                  fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textMuted),
             ),
           ],
         ),
         const SizedBox(height: 28),
+
+        // ── Contenido del paso actual ───────────────────────────────────────
         if (provider.step == 1) _buildStep1(provider),
         if (provider.step == 2) _buildStep2(provider),
         if (provider.step == 3) _buildStep3(provider),
+
         const SizedBox(height: 28),
+
+        // ── Botones Atrás / Continuar|Crear cuenta ─────────────────────────
         Row(
           children: [
             Opacity(
               opacity: provider.canGoBack ? 1 : 0.4,
               child: IgnorePointer(
-                ignoring: !provider.canGoBack,
+                ignoring: !provider.canGoBack || _loading,
                 child: OutlinedButton(
                   onPressed: provider.prevStep,
                   style: OutlinedButton.styleFrom(
@@ -163,10 +209,7 @@ class _RegisterViewState extends State<_RegisterView> {
                   child: Text(
                     'Atrás',
                     style: GoogleFonts.hankenGrotesk(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: _labelColor,
-                    ),
+                        fontSize: 15, fontWeight: FontWeight.w600, color: _labelColor),
                   ),
                 ),
               ),
@@ -185,35 +228,35 @@ class _RegisterViewState extends State<_RegisterView> {
                   ],
                 ),
                 child: ElevatedButton(
-                  onPressed: provider.showContinue
-                      ? provider.nextStep
-                      : () {
-                          provider.register();
-                          context.read<AuthProvider>().loginDirecto(email: provider.empEmail);
-                          final router = GoRouter.of(context);
-                          Future.delayed(const Duration(milliseconds: 900), () {
-                            if (mounted) router.go('/proyecto');
-                          });
-                        },
+                  onPressed: _loading
+                      ? null
+                      : provider.showContinue
+                          ? provider.nextStep
+                          : _doRegister,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
+                    disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.6),
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
                   ),
-                  child: Text(
-                    provider.showContinue ? 'Continuar' : 'Crear cuenta',
-                    style: GoogleFonts.hankenGrotesk(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
+                  child: _loading && !provider.showContinue
+                      ? const SizedBox(
+                          height: 20, width: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text(
+                          provider.showContinue ? 'Continuar' : 'Crear cuenta',
+                          style: GoogleFonts.hankenGrotesk(
+                              fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                        ),
                 ),
               ),
             ),
           ],
         ),
+
         const SizedBox(height: 26),
         Wrap(
           alignment: WrapAlignment.center,
@@ -221,20 +264,14 @@ class _RegisterViewState extends State<_RegisterView> {
             Text(
               '¿Ya tienes cuenta? ',
               style: GoogleFonts.hankenGrotesk(
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: AppColors.textMuted,
-              ),
+                  fontSize: 14, fontWeight: FontWeight.w400, color: AppColors.textMuted),
             ),
             GestureDetector(
               onTap: () => context.go('/login'),
               child: Text(
                 'Inicia sesión',
                 style: GoogleFonts.hankenGrotesk(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary,
-                ),
+                    fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primary),
               ),
             ),
           ],
@@ -243,6 +280,8 @@ class _RegisterViewState extends State<_RegisterView> {
     );
   }
 
+  // ─── Pasos ────────────────────────────────────────────────────────────────
+
   Widget _buildStep1(RegisterProvider provider) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -250,22 +289,35 @@ class _RegisterViewState extends State<_RegisterView> {
         _label('Nombre de la empresa'),
         const SizedBox(height: 7),
         TextField(
-          controller: _companyController,
+          controller: _companyCtrl,
           onChanged: provider.setCompany,
-          style: _inputTextStyle,
+          style: _inputStyle,
           decoration: const InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            hintText: 'Bosques S.A.',
+            filled: true, fillColor: Colors.white, hintText: 'Bosques S.A.',
+          ),
+        ),
+        const SizedBox(height: 18),
+        _label('Teléfono'),
+        const SizedBox(height: 7),
+        TextField(
+          controller: _phoneCtrl,
+          onChanged: provider.setPhone,
+          keyboardType: TextInputType.phone,
+          style: _inputStyle,
+          decoration: const InputDecoration(
+            filled: true, fillColor: Colors.white, hintText: '+57 300 000 0000',
           ),
         ),
         const SizedBox(height: 18),
         _label('Sector'),
         const SizedBox(height: 7),
-        _dropdown(
+        _StyledDropdown<String>(
           value: provider.sector,
-          items: RegisterProvider.sectors,
-          onChanged: provider.setSector,
+          items: RegisterProvider.sectors.map((key) => DropdownMenuItem(
+            value: key,
+            child: Text(RegisterProvider.sectorLabels[key]!, style: _inputStyle),
+          )).toList(),
+          onChanged: (v) { if (v != null) provider.setSector(v); },
         ),
       ],
     );
@@ -278,23 +330,24 @@ class _RegisterViewState extends State<_RegisterView> {
         _label('Email corporativo'),
         const SizedBox(height: 7),
         TextField(
-          controller: _empEmailController,
+          controller: _emailCtrl,
           onChanged: provider.setEmpEmail,
           keyboardType: TextInputType.emailAddress,
-          style: _inputTextStyle,
+          style: _inputStyle,
           decoration: const InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            hintText: 'ops@empresa.com',
+            filled: true, fillColor: Colors.white, hintText: 'ops@empresa.com',
           ),
         ),
         const SizedBox(height: 18),
         _label('Número de empleados'),
         const SizedBox(height: 7),
-        _dropdown(
+        _StyledDropdown<String>(
           value: provider.employees,
-          items: RegisterProvider.employeeRanges,
-          onChanged: provider.setEmployees,
+          items: RegisterProvider.employeeRanges.map((e) => DropdownMenuItem(
+            value: e,
+            child: Text(e, style: _inputStyle),
+          )).toList(),
+          onChanged: (v) { if (v != null) provider.setEmployees(v); },
         ),
       ],
     );
@@ -307,28 +360,24 @@ class _RegisterViewState extends State<_RegisterView> {
         _label('Contraseña'),
         const SizedBox(height: 7),
         TextField(
-          controller: _passwordController,
+          controller: _passwordCtrl,
           onChanged: provider.setPassword,
           obscureText: true,
-          style: _inputTextStyle,
+          style: _inputStyle,
           decoration: const InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            hintText: '••••••••',
+            filled: true, fillColor: Colors.white, hintText: '••••••••',
           ),
         ),
         const SizedBox(height: 18),
         _label('Confirmar contraseña'),
         const SizedBox(height: 7),
         TextField(
-          controller: _confirmController,
+          controller: _confirmCtrl,
           onChanged: provider.setConfirmPassword,
           obscureText: true,
-          style: _inputTextStyle,
+          style: _inputStyle,
           decoration: const InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            hintText: '••••••••',
+            filled: true, fillColor: Colors.white, hintText: '••••••••',
           ),
         ),
         const SizedBox(height: 18),
@@ -341,8 +390,7 @@ class _RegisterViewState extends State<_RegisterView> {
               AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
                 margin: const EdgeInsets.only(top: 1),
-                width: 20,
-                height: 20,
+                width: 20, height: 20,
                 decoration: BoxDecoration(
                   color: provider.acceptTerms ? AppColors.primary : Colors.white,
                   border: Border.all(
@@ -360,21 +408,20 @@ class _RegisterViewState extends State<_RegisterView> {
                 child: Text.rich(
                   TextSpan(
                     style: GoogleFonts.hankenGrotesk(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                      height: 1.5,
-                      color: _termsTextColor,
-                    ),
+                        fontSize: 14, fontWeight: FontWeight.w400,
+                        height: 1.5, color: _termsTextColor),
                     children: [
                       const TextSpan(text: 'Acepto los '),
                       TextSpan(
                         text: 'Términos',
-                        style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            color: AppColors.primary, fontWeight: FontWeight.w600),
                       ),
                       const TextSpan(text: ' y la '),
                       TextSpan(
                         text: 'Política de privacidad',
-                        style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            color: AppColors.primary, fontWeight: FontWeight.w600),
                       ),
                       const TextSpan(text: '.'),
                     ],
@@ -388,93 +435,49 @@ class _RegisterViewState extends State<_RegisterView> {
     );
   }
 
+  // ─── Helpers ──────────────────────────────────────────────────────────────
+
   Widget _label(String text) => Text(
         text,
         style: GoogleFonts.hankenGrotesk(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: _labelColor,
-        ),
+            fontSize: 13, fontWeight: FontWeight.w600, color: _labelColor),
       );
 
-  TextStyle get _inputTextStyle => GoogleFonts.hankenGrotesk(
-        fontSize: 15,
-        fontWeight: FontWeight.w400,
-        color: AppColors.ink,
-      );
-
-  Widget _dropdown({
-    required String value,
-    required List<String> items,
-    required ValueChanged<String> onChanged,
-  }) {
-    return DropdownButtonFormField<String>(
-      initialValue: value,
-      icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textSubtle),
-      style: _inputTextStyle,
-      decoration: const InputDecoration(
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      items: items.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-      onChanged: (v) {
-        if (v != null) onChanged(v);
-      },
-    );
-  }
+  TextStyle get _inputStyle => GoogleFonts.hankenGrotesk(
+        fontSize: 15, fontWeight: FontWeight.w400, color: AppColors.ink);
 }
 
-class _SuccessState extends StatelessWidget {
-  const _SuccessState();
+// ─── Dropdown estilizado (evita DropdownButtonFormField deprecado) ────────────
+
+class _StyledDropdown<T> extends StatelessWidget {
+  final T value;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+
+  const _StyledDropdown({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.read<RegisterProvider>();
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Column(
-        children: [
-          Container(
-            width: 74,
-            height: 74,
-            decoration: const BoxDecoration(
-              color: AppColors.aprobadoBg,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.check_rounded,
-              size: 34,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(height: 22),
-          Text('Empresa registrada', style: AppTextStyles.tituloVista),
-          const SizedBox(height: 8),
-          Text(
-            'Revisaremos tus datos y activaremos tu cuenta pronto.',
-            style: AppTextStyles.cuerpo.copyWith(height: 1.5),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 26),
-          OutlinedButton(
-            onPressed: provider.resetForAnother,
-            style: OutlinedButton.styleFrom(
-              backgroundColor: Colors.white,
-              side: const BorderSide(color: _logoutBorder, width: 1.5),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-            ),
-            child: Text(
-              'Registrar otra',
-              style: GoogleFonts.hankenGrotesk(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-        ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppColors.inputBorder, width: 1.5),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: DropdownButton<T>(
+        value: value,
+        isExpanded: true,
+        underline: const SizedBox.shrink(),
+        dropdownColor: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        icon: const Icon(Icons.keyboard_arrow_down, color: AppColors.textSubtle),
+        items: items,
+        onChanged: onChanged,
       ),
     );
   }

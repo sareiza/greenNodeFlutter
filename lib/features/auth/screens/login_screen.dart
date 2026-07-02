@@ -26,6 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _remember = false;
   bool _loggedIn = false;
+  bool _loading = false;
   String? _error;
 
   @override
@@ -35,24 +36,26 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() {
+  Future<void> _login() async {
+    if (_loading) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+    setState(() { _loading = true; _error = null; });
     try {
-      context.read<AuthProvider>().login(email: email, password: password);
-      setState(() {
-        _loggedIn = true;
-        _error = null;
-      });
+      await context.read<AuthProvider>().login(email: email, password: password);
+      if (!mounted) return;
+      setState(() { _loggedIn = true; _loading = false; });
       final rol = authProvider.rolActual;
       final router = GoRouter.of(context);
       Future.delayed(const Duration(milliseconds: 900), () {
-        if (mounted) {
-          router.go(rol == 'admin' ? '/admin/dashboard' : '/proyecto');
-        }
+        if (mounted) router.go(rol == 'admin' ? '/admin/dashboard' : '/proyecto');
       });
-    } catch (_) {
-      setState(() => _error = 'Credenciales inválidas. Revisa tu email y contraseña.');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -249,23 +252,33 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
           child: ElevatedButton(
-            onPressed: _login,
+            onPressed: _loading ? null : _login,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
+              disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.7),
               elevation: 0,
               padding: const EdgeInsets.symmetric(vertical: 15),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
             ).copyWith(
               overlayColor: WidgetStateProperty.all(AppColors.primaryHover),
             ),
-            child: Text(
-              'Iniciar sesión',
-              style: GoogleFonts.hankenGrotesk(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
+            child: _loading
+                ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    'Iniciar sesión',
+                    style: GoogleFonts.hankenGrotesk(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
           ),
         ),
         const SizedBox(height: 20),
@@ -355,16 +368,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Demo empresa: empresa@greennode.com / 12345678',
-                style: GoogleFonts.hankenGrotesk(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textSubtle,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                'Demo admin: admin@greennode.com / 12345678',
+                'Admin: admin@greennode.co / Admin123!',
                 style: GoogleFonts.hankenGrotesk(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,

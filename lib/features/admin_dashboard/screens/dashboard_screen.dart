@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/api_service.dart';
 import '../../../data/mock_admin_data.dart';
 import '../../../shared/badges/estado_badge.dart';
 
@@ -39,8 +40,176 @@ const _progressBg = Color(0xFFEAF4ED);
         ),
     };
 
-class DashboardScreen extends StatelessWidget {
+// ─── Datos calculados a partir de la API ─────────────────────────────────────
+
+class _DashboardData {
+  final int cotizacionesPendientes;
+  final int proyectosEnProgreso;
+  final int proyectosCompletados;
+  final int proyectosCancelados;
+  final List<ProyectoAdminItem> proyectos;
+  final List<({String title, String trailing})> cotizacionesPrioritarias;
+  final List<({String title, String trailing})> proyectosSinEvidencia;
+
+  const _DashboardData({
+    required this.cotizacionesPendientes,
+    required this.proyectosEnProgreso,
+    required this.proyectosCompletados,
+    required this.proyectosCancelados,
+    required this.proyectos,
+    required this.cotizacionesPrioritarias,
+    required this.proyectosSinEvidencia,
+  });
+}
+
+EstadoProyectoAdmin _mapEstado(String status) {
+  return switch (status.toLowerCase()) {
+    'completed' || 'completado' || 'finalizado' => EstadoProyectoAdmin.completado,
+    'cancelled' || 'canceled' || 'cancelado' => EstadoProyectoAdmin.cancelado,
+    _ => EstadoProyectoAdmin.enProgreso,
+  };
+}
+
+String _formatDate(String? iso) {
+  if (iso == null || iso.isEmpty) return '—';
+  try {
+    final dt = DateTime.parse(iso);
+    const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    return '${dt.day} ${meses[dt.month - 1]} ${dt.year}';
+  } catch (_) {
+    return iso.split('T').first;
+  }
+}
+
+_DashboardData _buildData(
+  Map<String, dynamic> summary,
+  List<dynamic> proyectosRaw,
+  List<dynamic> cotizacionesRaw,
+) {
+  // Métricas: usar summary si el back lo devuelve, si no computar desde las listas
+  final hasSummary = summary.isNotEmpty;
+
+  int cotPend, enProg, completados, cancelados;
+
+  if (hasSummary) {
+    cotPend      = (summary['pendingQuotes'] ?? summary['cotizacionesPendientes'] ?? 0) as int;
+    enProg       = (summary['activeProjects'] ?? summary['proyectosEnProgreso'] ?? 0) as int;
+    completados  = (summary['completedProjects'] ?? summary['proyectosCompletados'] ?? 0) as int;
+    cancelados   = (summary['cancelledProjects'] ?? summary['proyectosCancelados'] ?? 0) as int;
+  } else {
+    bool isPend(dynamic c) {
+      final s = ((c as Map)['status'] as String? ?? '').toLowerCase();
+      return s == 'pending' || s == 'reviewed' || s == 'pendiente' || s == 'enrevision';
+    }
+    bool isActive(dynamic p) {
+      final s = ((p as Map)['status'] as String? ?? '').toLowerCase();
+      return s != 'completed' && s != 'cancelled' && s != 'canceled';
+    }
+    bool isDone(dynamic p)      => ((p as Map)['status'] as String? ?? '').toLowerCase() == 'completed';
+    bool isCancelled(dynamic p) {
+      final s = ((p as Map)['status'] as String? ?? '').toLowerCase();
+      return s == 'cancelled' || s == 'canceled';
+    }
+
+    cotPend     = cotizacionesRaw.where(isPend).length;
+    enProg      = proyectosRaw.where(isActive).length;
+    completados = proyectosRaw.where(isDone).length;
+    cancelados  = proyectosRaw.where(isCancelled).length;
+  }
+
+  // Proyectos recientes (máx 8)
+  final proyectos = proyectosRaw.take(8).map((raw) {
+    final p = raw as Map<String, dynamic>;
+    return ProyectoAdminItem(
+      id:      p['id']?.toString() ?? '',
+      nombre:  p['name']?.toString() ?? p['nombre']?.toString() ?? 'Proyecto sin nombre',
+      empresa: p['companyName']?.toString() ?? p['empresa']?.toString() ?? '—',
+      estado:  _mapEstado(p['status']?.toString() ?? ''),
+      avance:  (p['progress'] as num?)?.toDouble() ?? 0.0,
+    );
+  }).toList();
+
+  // Acciones: cotizaciones pendientes/en revisión
+  final cotPrioritarias = cotizacionesRaw
+      .where((c) {
+        final s = ((c as Map)['status'] as String? ?? '').toLowerCase();
+        return s == 'pending' || s == 'reviewed' || s == 'pendiente' || s == 'enrevision';
+      })
+      .take(5)
+      .map((c) {
+        final m = c as Map<String, dynamic>;
+        return (
+          title: m['companyName']?.toString() ?? m['empresa']?.toString() ?? 'Empresa',
+          trailing: _formatDate(m['createdAt']?.toString() ?? m['fecha']?.toString()),
+        );
+      })
+      .toList();
+
+  // Acciones: proyectos en progreso como "sin evidencia reciente" (evidencias endpoint aún no disponible)
+  final sinEvidencia = proyectos
+      .where((p) => p.estado == EstadoProyectoAdmin.enProgreso)
+      .take(4)
+      .map((p) => (title: p.nombre, trailing: '—'))
+      .toList();
+
+  return _DashboardData(
+    cotizacionesPendientes: cotPend,
+    proyectosEnProgreso:    enProg,
+    proyectosCompletados:   completados,
+    proyectosCancelados:    cancelados,
+    proyectos:              proyectos,
+    cotizacionesPrioritarias: cotPrioritarias,
+    proyectosSinEvidencia:  sinEvidencia,
+  );
+}
+
+// ─── Pantalla principal ───────────────────────────────────────────────────────
+
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  bool _loading = true;
+  String? _error;
+  _DashboardData? _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      // Las tres llamadas en paralelo; summary puede fallar (404) sin romper todo
+      final results = await Future.wait([
+        apiService.getDashboardSummary().catchError((_) => <String, dynamic>{}),
+        apiService.getProyectos(),
+        apiService.getCotizaciones(),
+      ]);
+
+      final summary      = results[0] as Map<String, dynamic>;
+      final proyectosRaw = results[1] as List<dynamic>;
+      final cotizRaw     = results[2] as List<dynamic>;
+
+      if (!mounted) return;
+      setState(() {
+        _data    = _buildData(summary, proyectosRaw, cotizRaw);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error   = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,25 +225,69 @@ class DashboardScreen extends StatelessWidget {
             ],
           ),
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 38, vertical: 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const _PageHeader(),
-                const SizedBox(height: 26),
-                const _MetricsRow(),
-                const SizedBox(height: 28),
-                const _EvolucionChartCard(),
-                const SizedBox(height: 28),
-                const _ProyectosRecientesSection(),
-                const SizedBox(height: 28),
-                const _AccionesPrioritariasSection(),
-              ],
+        child: SafeArea(child: _buildBody()),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.wifi_off_outlined, size: 48, color: AppColors.textSubtle),
+            const SizedBox(height: 16),
+            Text(
+              _error!,
+              style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted),
+              textAlign: TextAlign.center,
             ),
-          ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Reintentar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
         ),
+      );
+    }
+
+    final d = _data!;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 38, vertical: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _PageHeader(),
+          const SizedBox(height: 26),
+          _MetricsRow(
+            cotizacionesPendientes: d.cotizacionesPendientes,
+            proyectosEnProgreso:    d.proyectosEnProgreso,
+            proyectosCompletados:   d.proyectosCompletados,
+            proyectosCancelados:    d.proyectosCancelados,
+          ),
+          const SizedBox(height: 28),
+          const _EvolucionChartCard(),
+          const SizedBox(height: 28),
+          _ProyectosRecientesSection(proyectos: d.proyectos),
+          const SizedBox(height: 28),
+          _AccionesPrioritariasSection(
+            cotizaciones: d.cotizacionesPrioritarias,
+            sinEvidencia: d.proyectosSinEvidencia,
+          ),
+        ],
       ),
     );
   }
@@ -108,35 +321,44 @@ class _PageHeader extends StatelessWidget {
 // ─── Fila de métricas ─────────────────────────────────────────────────────────
 
 class _MetricsRow extends StatelessWidget {
-  const _MetricsRow();
+  final int cotizacionesPendientes;
+  final int proyectosEnProgreso;
+  final int proyectosCompletados;
+  final int proyectosCancelados;
+
+  const _MetricsRow({
+    required this.cotizacionesPendientes,
+    required this.proyectosEnProgreso,
+    required this.proyectosCompletados,
+    required this.proyectosCancelados,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final m = mockMetricas;
     final cards = [
       _MetricCard(
-        value: '${m.cotizacionesPendientes}',
+        value: '$cotizacionesPendientes',
         label: 'Cotizaciones pendientes',
         icon: Icons.description_outlined,
         fg: AppColors.pendienteDot,
         bg: AppColors.pendienteBg,
       ),
       _MetricCard(
-        value: '${m.proyectosEnProgreso}',
+        value: '$proyectosEnProgreso',
         label: 'Proyectos en progreso',
         icon: Icons.park_outlined,
         fg: AppColors.primary,
         bg: AppColors.surfaceMint,
       ),
       _MetricCard(
-        value: '${m.proyectosCompletados}',
+        value: '$proyectosCompletados',
         label: 'Proyectos completados',
         icon: Icons.check_circle_outline,
         fg: AppColors.aprobadoDot,
         bg: AppColors.aprobadoBg,
       ),
       _MetricCard(
-        value: '${m.proyectosCancelados}',
+        value: '$proyectosCancelados',
         label: 'Proyectos cancelados',
         icon: Icons.cancel_outlined,
         fg: AppColors.rechazadoDot,
@@ -228,7 +450,7 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-// ─── Gráfica de barras: proyectos por estado ─────────────────────────────────
+// ─── Gráfica de barras (datos históricos — mantenida con mock mientras el back no expone el endpoint) ──
 
 class _EvolucionChartCard extends StatelessWidget {
   const _EvolucionChartCard();
@@ -404,7 +626,8 @@ class _ChartLegend extends StatelessWidget {
 // ─── Últimos proyectos ─────────────────────────────────────────────────────────
 
 class _ProyectosRecientesSection extends StatelessWidget {
-  const _ProyectosRecientesSection();
+  final List<ProyectoAdminItem> proyectos;
+  const _ProyectosRecientesSection({required this.proyectos});
 
   @override
   Widget build(BuildContext context) {
@@ -416,10 +639,16 @@ class _ProyectosRecientesSection extends StatelessWidget {
           style: GoogleFonts.plusJakartaSans(fontSize: 19, fontWeight: FontWeight.w700, color: AppColors.ink),
         ),
         const SizedBox(height: 14),
-        for (int i = 0; i < mockProyectosRecientes.length; i++) ...[
-          _ProyectoCard(mockProyectosRecientes[i]),
-          if (i < mockProyectosRecientes.length - 1) const SizedBox(height: 10),
-        ],
+        if (proyectos.isEmpty)
+          _EmptyState(
+            icon: Icons.forest_outlined,
+            message: 'No hay proyectos registrados aún.',
+          )
+        else
+          for (int i = 0; i < proyectos.length; i++) ...[
+            _ProyectoCard(proyectos[i]),
+            if (i < proyectos.length - 1) const SizedBox(height: 10),
+          ],
       ],
     );
   }
@@ -517,7 +746,13 @@ class _ProyectoCardState extends State<_ProyectoCard> {
 // ─── Acciones prioritarias ──────────────────────────────────────────────────────
 
 class _AccionesPrioritariasSection extends StatelessWidget {
-  const _AccionesPrioritariasSection();
+  final List<({String title, String trailing})> cotizaciones;
+  final List<({String title, String trailing})> sinEvidencia;
+
+  const _AccionesPrioritariasSection({
+    required this.cotizaciones,
+    required this.sinEvidencia,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -531,36 +766,34 @@ class _AccionesPrioritariasSection extends StatelessWidget {
         const SizedBox(height: 14),
         LayoutBuilder(
           builder: (context, constraints) {
-            final cotizaciones = _AccionesCard(
+            final cotCard = _AccionesCard(
               title: 'Cotizaciones pendientes de revisión',
               icon: Icons.description_outlined,
               accent: AppColors.pendienteDot,
               accentBg: AppColors.pendienteBg,
-              rows: [
-                for (final c in mockAccionesPrioritarias.cotizacionesPendientes)
-                  _AccionRow(title: c.empresa, trailing: c.fecha),
-              ],
+              rows: cotizaciones.isEmpty
+                  ? [const _EmptyAccionRow()]
+                  : [for (final c in cotizaciones) _AccionRow(title: c.title, trailing: c.trailing)],
             );
-            final evidencia = _AccionesCard(
+            final evCard = _AccionesCard(
               title: 'Proyectos sin evidencia reciente',
               icon: Icons.photo_library_outlined,
               accent: AppColors.rechazadoDot,
               accentBg: AppColors.rechazadoBg,
-              rows: [
-                for (final p in mockAccionesPrioritarias.proyectosSinEvidencia)
-                  _AccionRow(title: p.nombre, trailing: '${p.diasSinEvidencia} días'),
-              ],
+              rows: sinEvidencia.isEmpty
+                  ? [const _EmptyAccionRow()]
+                  : [for (final p in sinEvidencia) _AccionRow(title: p.title, trailing: p.trailing)],
             );
 
             if (constraints.maxWidth < 760) {
-              return Column(children: [cotizaciones, const SizedBox(height: 16), evidencia]);
+              return Column(children: [cotCard, const SizedBox(height: 16), evCard]);
             }
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: cotizaciones),
+                Expanded(child: cotCard),
                 const SizedBox(width: 20),
-                Expanded(child: evidencia),
+                Expanded(child: evCard),
               ],
             );
           },
@@ -649,6 +882,48 @@ class _AccionRow extends StatelessWidget {
           style: GoogleFonts.hankenGrotesk(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.textSubtle),
         ),
       ],
+    );
+  }
+}
+
+class _EmptyAccionRow extends StatelessWidget {
+  const _EmptyAccionRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'Sin elementos pendientes',
+      style: GoogleFonts.hankenGrotesk(fontSize: 13, color: AppColors.textSubtle),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String message;
+  const _EmptyState({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.line, width: 1),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 36, color: AppColors.line),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textSubtle),
+          ),
+        ],
+      ),
     );
   }
 }

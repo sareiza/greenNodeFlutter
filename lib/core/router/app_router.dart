@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/admin_cotizaciones/screens/cotizacion_detalle_admin_screen.dart';
@@ -12,13 +11,14 @@ import '../../features/auth/providers/auth_provider.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/register_screen.dart';
 import '../../features/auth/screens/splash_screen.dart';
+import '../../features/cotizacion/screens/cotizacion_detalle_screen.dart';
 import '../../features/cotizacion/screens/cotizacion_form_screen.dart';
 import '../../features/cotizacion/screens/cotizacion_lista_screen.dart';
+import '../../features/chatbot/screens/chat_screen.dart';
 import '../../features/proyecto/screens/proyecto_overview_screen.dart';
 import '../../features/proyecto/screens/areas_siembra_screen.dart';
 import '../../features/proyecto/screens/certificado_screen.dart';
 import '../../features/proyecto/widgets/evidencia_galeria.dart';
-import '../../shared/widgets/coming_soon_screen.dart';
 import '../../main.dart';
 
 /// Rutas accesibles sin sesión activa. Cualquier otra ruta requiere estar
@@ -83,6 +83,11 @@ final appRouter = GoRouter(
           builder: (context, state) => const CotizacionListaScreen(),
         ),
         GoRoute(
+          path: '/cotizaciones/:id',
+          builder: (context, state) =>
+              CotizacionDetalleScreen(id: state.pathParameters['id']!),
+        ),
+        GoRoute(
           path: '/cotizar',
           builder: (context, state) => const CotizacionFormScreen(),
         ),
@@ -100,11 +105,7 @@ final appRouter = GoRouter(
         ),
         GoRoute(
           path: '/asistente',
-          builder: (context, state) => const ComingSoonScreen(
-            title: 'Asistente Aura',
-            subtitle: 'Chat de ayuda — próximamente.',
-            icon: Icons.smart_toy_outlined,
-          ),
+          builder: (context, state) => const ChatScreen(),
         ),
       ],
     ),

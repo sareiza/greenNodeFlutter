@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
@@ -51,7 +52,7 @@ class _ProyectoView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLoading = context.select<ProyectoProvider, bool>((p) => p.isLoading);
+    final p = context.watch<ProyectoProvider>();
 
     return Scaffold(
       body: Container(
@@ -65,23 +66,30 @@ class _ProyectoView extends StatelessWidget {
             ],
           ),
         ),
-        child: isLoading
+        child: p.isLoading
             ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-            : SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 38, vertical: 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    _PageHeader(),
-                    SizedBox(height: 22),
-                    _HeroCard(),
-                    SizedBox(height: 26),
-                    _SpeciesSection(),
-                    SizedBox(height: 30),
-                    _TimelineSection(),
-                  ],
-                ),
-              ),
+            : p.error != null
+                ? _ErrorState(
+                    error: p.error!,
+                    onRetry: () => context.read<ProyectoProvider>().cargar(),
+                  )
+                : !p.hasProject
+                    ? const _EmptyState()
+                    : SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 38, vertical: 32),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            _PageHeader(),
+                            SizedBox(height: 22),
+                            _HeroCard(),
+                            SizedBox(height: 26),
+                            _SpeciesSection(),
+                            SizedBox(height: 30),
+                            _TimelineSection(),
+                          ],
+                        ),
+                      ),
       ),
     );
   }
@@ -207,43 +215,52 @@ class _HeroHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 16),
-          const _EnCursoBadge(),
+          _StatusBadge(p.status),
         ],
       ),
     );
   }
 }
 
-class _EnCursoBadge extends StatelessWidget {
-  const _EnCursoBadge();
+class _StatusBadge extends StatelessWidget {
+  final String status;
+  const _StatusBadge(this.status);
+
+  (Color bg, Color dot, Color text, String label) _config() => switch (status) {
+        'completed' || 'completado' => (
+            Colors.white,
+            const Color(0xFF1B9E54),
+            const Color(0xFF15462F),
+            'Completado',
+          ),
+        'cancelled' || 'cancelado' => (
+            const Color(0xFFFEF2F2),
+            const Color(0xFFDC2626),
+            const Color(0xFF991B1B),
+            'Cancelado',
+          ),
+        _ => (
+            AppColors.mint,
+            const Color(0xFF06301C),
+            const Color(0xFF06301C),
+            'En curso',
+          ),
+      };
 
   @override
   Widget build(BuildContext context) {
+    final (bg, dot, text, label) = _config();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.mint,
-        borderRadius: BorderRadius.circular(999),
-      ),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: const BoxDecoration(
-              color: Color(0xFF06301C),
-              shape: BoxShape.circle,
-            ),
-          ),
+          Container(width: 7, height: 7, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
           const SizedBox(width: 7),
           Text(
-            'En curso',
-            style: GoogleFonts.hankenGrotesk(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF06301C),
-            ),
+            label,
+            style: GoogleFonts.hankenGrotesk(fontSize: 12, fontWeight: FontWeight.w600, color: text),
           ),
         ],
       ),
@@ -709,6 +726,109 @@ class _Eyebrow extends StatelessWidget {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.96,
         color: _eyebrowColor,
+      ),
+    );
+  }
+}
+
+// ─── Empty / Error states ─────────────────────────────────────────────────────
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: const BoxDecoration(
+                color: AppColors.surfaceMint,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.park_outlined, size: 38, color: AppColors.primary),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Aún no tienes un proyecto activo',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Solicita una cotización para comenzar a sembrar tu bosque corporativo.',
+              style: GoogleFonts.hankenGrotesk(
+                fontSize: 14,
+                color: AppColors.textMuted,
+                height: 1.55,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () => context.go('/cotizar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+              child: Text(
+                'Solicitar cotización',
+                style: GoogleFonts.hankenGrotesk(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final String error;
+  final VoidCallback onRetry;
+  const _ErrorState({required this.error, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(48),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 40, color: AppColors.textMuted),
+            const SizedBox(height: 16),
+            Text(
+              error,
+              style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            TextButton(
+              onPressed: onRetry,
+              child: Text(
+                'Reintentar',
+                style: GoogleFonts.hankenGrotesk(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

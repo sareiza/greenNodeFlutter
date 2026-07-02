@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../data/mock_admin_data.dart';
+import '../../../data/api_service.dart';
 import '../../../shared/badges/estado_badge.dart';
 
 // ─── Colores puntuales del mockup ────────────────────────────────────────────
@@ -17,6 +17,50 @@ const _hoverShadow = Color(0x0F102A1C);
 
 enum _Filtro { todas, pendiente, enRevision }
 
+// ─── Modelo local mapeado desde la API ───────────────────────────────────────
+
+class _QuoteItem {
+  final String id;
+  final String empresa;
+  final String territorio;
+  final int arboles;
+  final String fecha;
+  final String status;
+
+  const _QuoteItem({
+    required this.id,
+    required this.empresa,
+    required this.territorio,
+    required this.arboles,
+    required this.fecha,
+    required this.status,
+  });
+
+  factory _QuoteItem.fromJson(Map<String, dynamic> j) => _QuoteItem(
+        id:         j['id']?.toString() ?? '',
+        empresa:    j['companyName']?.toString() ?? j['empresa']?.toString() ?? 'Empresa',
+        territorio: j['territory']?.toString() ?? j['territoryName']?.toString() ?? '—',
+        arboles:    (j['trees'] as num?)?.toInt() ??
+                    (j['numberOfTrees'] as num?)?.toInt() ??
+                    (j['quantity'] as num?)?.toInt() ?? 0,
+        fecha:      _fmt(j['createdAt']?.toString() ?? j['fecha']?.toString()),
+        status:     (j['status']?.toString() ?? 'pending').toLowerCase(),
+      );
+}
+
+String _fmt(String? iso) {
+  if (iso == null || iso.isEmpty) return '—';
+  try {
+    final dt = DateTime.parse(iso);
+    const m = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    return '${dt.day} ${m[dt.month - 1]} ${dt.year}';
+  } catch (_) {
+    return iso.split('T').first;
+  }
+}
+
+// ─── Pantalla ─────────────────────────────────────────────────────────────────
+
 class CotizacionesPendientesScreen extends StatefulWidget {
   const CotizacionesPendientesScreen({super.key});
 
@@ -26,21 +70,39 @@ class CotizacionesPendientesScreen extends StatefulWidget {
 
 class _CotizacionesPendientesScreenState extends State<CotizacionesPendientesScreen> {
   _Filtro _filtro = _Filtro.todas;
+  bool _loading = true;
+  String? _error;
+  List<_QuoteItem> _all = [];
 
-  List<CotizacionAdminItem> get _items {
-    switch (_filtro) {
-      case _Filtro.todas:
-        return mockCotizacionesAdmin;
-      case _Filtro.pendiente:
-        return mockCotizacionesAdmin
-            .where((c) => c.estado == EstadoCotizacionAdmin.pendiente)
-            .toList();
-      case _Filtro.enRevision:
-        return mockCotizacionesAdmin
-            .where((c) => c.estado == EstadoCotizacionAdmin.enRevision)
-            .toList();
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final raw = await apiService.getCotizaciones();
+      if (!mounted) return;
+      setState(() {
+        _all = raw.map((e) => _QuoteItem.fromJson(e as Map<String, dynamic>)).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
+
+  List<_QuoteItem> get _items => switch (_filtro) {
+        _Filtro.todas      => _all,
+        _Filtro.pendiente  => _all.where((c) => c.status == 'pending').toList(),
+        _Filtro.enRevision => _all.where((c) => c.status == 'reviewed').toList(),
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -49,11 +111,7 @@ class _CotizacionesPendientesScreenState extends State<CotizacionesPendientesScr
         decoration: const BoxDecoration(
           gradient: RadialGradient(
             radius: 1.2,
-            colors: [
-              AppColors.bgGradientStart,
-              AppColors.bgGradientMid,
-              AppColors.bgGradientEnd,
-            ],
+            colors: [AppColors.bgGradientStart, AppColors.bgGradientMid, AppColors.bgGradientEnd],
           ),
         ),
         child: SafeArea(
@@ -87,25 +145,54 @@ class _CotizacionesPendientesScreenState extends State<CotizacionesPendientesScr
                 ),
               ),
               const SizedBox(height: 16),
-              Expanded(
-                child: _items.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No hay cotizaciones para este filtro.',
-                          style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(38, 0, 38, 32),
-                        itemCount: _items.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 12),
-                        itemBuilder: (context, i) => _CotizacionCard(_items[i]),
-                      ),
-              ),
+              Expanded(child: _buildBody()),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.wifi_off_outlined, size: 40, color: AppColors.textSubtle),
+            const SizedBox(height: 14),
+            Text(_error!, style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted)),
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Reintentar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_items.isEmpty) {
+      return Center(
+        child: Text(
+          'No hay cotizaciones para este filtro.',
+          style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(38, 0, 38, 32),
+      itemCount: _items.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, i) => _CotizacionCard(_items[i]),
     );
   }
 }
@@ -179,7 +266,7 @@ class _FiltroChip extends StatelessWidget {
 // ─── Tarjeta de cotización ──────────────────────────────────────────────────
 
 class _CotizacionCard extends StatefulWidget {
-  final CotizacionAdminItem cotizacion;
+  final _QuoteItem cotizacion;
   const _CotizacionCard(this.cotizacion);
 
   @override
@@ -192,10 +279,11 @@ class _CotizacionCardState extends State<_CotizacionCard> {
   @override
   Widget build(BuildContext context) {
     final c = widget.cotizacion;
-    final (bg, fg, dot) = c.estado == EstadoCotizacionAdmin.pendiente
+    final isPend = c.status == 'pending';
+    final (bg, fg, dot) = isPend
         ? (AppColors.pendienteBg, AppColors.pendienteText, AppColors.pendienteDot)
         : (AppColors.enRevisionBg, AppColors.enRevisionText, AppColors.enRevisionDot);
-    final label = c.estado == EstadoCotizacionAdmin.pendiente ? 'Pendiente' : 'En revisión';
+    final label = isPend ? 'Pendiente' : 'En revisión';
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,

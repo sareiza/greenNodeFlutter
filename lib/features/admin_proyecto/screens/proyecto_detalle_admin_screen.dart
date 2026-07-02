@@ -1,46 +1,76 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/app_colors.dart';
-import '../../../data/mock_admin_data.dart';
+import '../../../data/api_service.dart';
 import '../../../shared/badges/estado_badge.dart';
 
 const _cardShadow = [
   BoxShadow(color: Color(0x12102A1C), blurRadius: 24, offset: Offset(0, 8)),
 ];
 
+// ─── Modelos locales ──────────────────────────────────────────────────────────
+
+enum _EstadoP { enProgreso, completado, cancelado }
+
+class _EvidenciaItem {
+  final String id;
+  final String? imageUrl;
+  final String estadoIA; // pending | approved | rejected | processing
+  final String fecha;
+
+  const _EvidenciaItem({
+    required this.id,
+    this.imageUrl,
+    required this.estadoIA,
+    required this.fecha,
+  });
+
+  factory _EvidenciaItem.fromJson(Map<String, dynamic> j) => _EvidenciaItem(
+        id:       j['id']?.toString() ?? '',
+        imageUrl: j['imageUrl']?.toString() ?? j['url']?.toString() ?? j['photoUrl']?.toString(),
+        estadoIA: (j['status']?.toString() ?? 'pending').toLowerCase(),
+        fecha:    _fmt(j['createdAt']?.toString() ?? j['date']?.toString()),
+      );
+}
+
 // ─── Helpers visuales ─────────────────────────────────────────────────────────
 
-(Color bg, Color fg, Color dot, String label) _estadoProyectoVis(
-    EstadoProyectoAdmin e) =>
-    switch (e) {
-      EstadoProyectoAdmin.enProgreso =>
-        (AppColors.enRevisionBg, AppColors.enRevisionText, AppColors.enRevisionDot, 'En progreso'),
-      EstadoProyectoAdmin.completado =>
-        (AppColors.aprobadoBg, AppColors.aprobadoText, AppColors.aprobadoDot, 'Completado'),
-      EstadoProyectoAdmin.cancelado =>
-        (AppColors.rechazadoBg, AppColors.rechazadoText, AppColors.rechazadoDot, 'Cancelado'),
+String _fmt(String? iso) {
+  if (iso == null || iso.isEmpty) return '—';
+  try {
+    final dt = DateTime.parse(iso);
+    const m = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    return '${dt.day} ${m[dt.month - 1]} ${dt.year}';
+  } catch (_) {
+    return iso.split('T').first;
+  }
+}
+
+(Color bg, Color fg, Color dot, String label) _estadoProyectoVis(_EstadoP e) => switch (e) {
+      _EstadoP.enProgreso => (AppColors.enRevisionBg, AppColors.enRevisionText, AppColors.enRevisionDot, 'En progreso'),
+      _EstadoP.completado => (AppColors.aprobadoBg, AppColors.aprobadoText, AppColors.aprobadoDot, 'Completado'),
+      _EstadoP.cancelado  => (AppColors.rechazadoBg, AppColors.rechazadoText, AppColors.rechazadoDot, 'Cancelado'),
     };
 
-(Color bg, Color fg, Color dot, String label) _estadoIAVis(EstadoIA e) =>
-    switch (e) {
-      EstadoIA.validado =>
+(Color bg, Color fg, Color dot, String label) _estadoIAVis(String status) => switch (status) {
+      'approved' || 'validated' || 'validado' =>
         (AppColors.aprobadoBg, AppColors.aprobadoText, AppColors.aprobadoDot, 'Validado IA'),
-      EstadoIA.pendiente =>
-        (AppColors.pendienteBg, AppColors.pendienteText, AppColors.pendienteDot, 'Pendiente'),
-      EstadoIA.rechazado =>
+      'rejected' || 'rechazado' =>
         (AppColors.rechazadoBg, AppColors.rechazadoText, AppColors.rechazadoDot, 'Rechazado'),
-      EstadoIA.validandoIA =>
+      'processing' || 'validating' =>
         (AppColors.enRevisionBg, AppColors.enRevisionText, AppColors.enRevisionDot, 'Validando IA…'),
+      _ => (AppColors.pendienteBg, AppColors.pendienteText, AppColors.pendienteDot, 'Pendiente'),
     };
 
-String _mesCorto(int m) => const [
-      'ene', 'feb', 'mar', 'abr', 'may', 'jun',
-      'jul', 'ago', 'sep', 'oct', 'nov', 'dic'
-    ][m - 1];
+_EstadoP _mapEstadoP(String status) => switch (status.toLowerCase()) {
+      'completed' || 'completado'                      => _EstadoP.completado,
+      'cancelled' || 'canceled' || 'cancelado'         => _EstadoP.cancelado,
+      _                                                => _EstadoP.enProgreso,
+    };
 
-// Gradientes placeholder para las fotos de evidencia
 const _photoGradients = [
   [Color(0xFF1A3A2A), Color(0xFF2D5A3D)],
   [Color(0xFF0E2C1E), Color(0xFF1B4332)],
@@ -55,33 +85,33 @@ class ProyectoDetalleAdminScreen extends StatefulWidget {
   const ProyectoDetalleAdminScreen({super.key, required this.id});
 
   @override
-  State<ProyectoDetalleAdminScreen> createState() =>
-      _ProyectoDetalleAdminScreenState();
+  State<ProyectoDetalleAdminScreen> createState() => _ProyectoDetalleAdminScreenState();
 }
 
-class _ProyectoDetalleAdminScreenState
-    extends State<ProyectoDetalleAdminScreen> {
-  ProyectoAdminDetalle? _proyecto;
-  late EstadoProyectoAdmin _estado;
-  late double _avance;
-  late List<EvidenciaAdmin> _evidencias;
+class _ProyectoDetalleAdminScreenState extends State<ProyectoDetalleAdminScreen> {
+  // ── Carga inicial ──────────────────────────────────────────────────────────
+  bool _loading = true;
+  String? _error;
+
+  // ── Datos del proyecto ─────────────────────────────────────────────────────
+  Map<String, dynamic>? _proyecto;
+  _EstadoP _estado = _EstadoP.enProgreso;
+  double _avance = 0.0;
   late TextEditingController _marcoCtrl;
   bool _editandoMarco = false;
+
+  // ── Evidencias ─────────────────────────────────────────────────────────────
+  List<_EvidenciaItem> _evidencias = [];
   bool _subiendo = false;
+
+  // ── Guardar progreso ───────────────────────────────────────────────────────
+  bool _savingProgress = false;
 
   @override
   void initState() {
     super.initState();
-    _proyecto =
-        mockProyectosAdmin.where((p) => p.id == widget.id).firstOrNull;
-    if (_proyecto != null) {
-      _estado = _proyecto!.estado;
-      _avance = _proyecto!.avance;
-      _evidencias = List.from(_proyecto!.evidencias);
-      _marcoCtrl = TextEditingController(text: _proyecto!.marcoLogico);
-    } else {
-      _marcoCtrl = TextEditingController();
-    }
+    _marcoCtrl = TextEditingController();
+    _loadData();
   }
 
   @override
@@ -90,37 +120,124 @@ class _ProyectoDetalleAdminScreenState
     super.dispose();
   }
 
-  // ── Estado & avance ────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
 
-  void _guardarCambios() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Cambios guardados correctamente.',
-          style: GoogleFonts.hankenGrotesk(
-              fontWeight: FontWeight.w500, color: Colors.white),
-        ),
-        backgroundColor: AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(20),
-        duration: const Duration(seconds: 3),
-      ),
-    );
+  Future<void> _loadData() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final results = await Future.wait([
+        apiService.getProyectoById(widget.id),
+        apiService.getEvidencias(widget.id).catchError((_) => <dynamic>[]),
+      ]);
+
+      final proyecto    = results[0] as Map<String, dynamic>;
+      final evidRaw     = results[1] as List<dynamic>;
+
+      if (!mounted) return;
+      setState(() {
+        _proyecto  = proyecto;
+        _estado    = _mapEstadoP(proyecto['status']?.toString() ?? '');
+        _avance    = (proyecto['progress'] as num?)?.toDouble() ?? 0.0;
+        _marcoCtrl.text = proyecto['logicalFramework']?.toString() ??
+            proyecto['marcoLogico']?.toString() ??
+            proyecto['description']?.toString() ?? '';
+        _evidencias = evidRaw
+            .map((e) => _EvidenciaItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error   = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  Future<void> _recargarEvidencias() async {
+    try {
+      final raw = await apiService.getEvidencias(widget.id);
+      if (!mounted) return;
+      setState(() {
+        _evidencias = raw.map((e) => _EvidenciaItem.fromJson(e as Map<String, dynamic>)).toList();
+      });
+    } catch (_) {}
+  }
+
+  // ── Guardar progreso ───────────────────────────────────────────────────────
+
+  Future<void> _guardarCambios() async {
+    setState(() => _savingProgress = true);
+    try {
+      await apiService.actualizarProgreso(widget.id, _avance);
+      if (!mounted) return;
+      _showSnackBar('Progreso actualizado correctamente.', AppColors.primary);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar(e.toString().replaceFirst('Exception: ', ''), AppColors.rechazadoDot);
+    } finally {
+      if (mounted) setState(() => _savingProgress = false);
+    }
   }
 
   // ── Marco lógico ──────────────────────────────────────────────────────────
 
   void _guardarMarco() {
     setState(() => _editandoMarco = false);
+    _showSnackBar('Marco lógico guardado localmente. Pendiente de endpoint en el servidor.', AppColors.primary);
+  }
+
+  // ── Subida de evidencias ──────────────────────────────────────────────────
+
+  Future<void> _mostrarSheetSubida() async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Error al abrir selector: $e', AppColors.rechazadoDot);
+      return;
+    }
+
+    if (result == null || result.files.isEmpty || !mounted) return;
+
+    final picked = result.files.first;
+    final bytes  = picked.bytes;
+    final name   = picked.name;
+
+    if (bytes == null) {
+      _showSnackBar('No se pudo leer el archivo.', AppColors.rechazadoDot);
+      return;
+    }
+
+    setState(() => _subiendo = true);
+
+    try {
+      await apiService.subirEvidencia(widget.id, bytes, name);
+      if (!mounted) return;
+      await _recargarEvidencias();
+      _showSnackBar('Evidencia subida correctamente.', AppColors.primary);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar(e.toString().replaceFirst('Exception: ', ''), AppColors.rechazadoDot);
+    } finally {
+      if (mounted) setState(() => _subiendo = false);
+    }
+  }
+
+  // ── Utilidades ─────────────────────────────────────────────────────────────
+
+  void _showSnackBar(String msg, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          'Marco lógico actualizado.',
-          style: GoogleFonts.hankenGrotesk(
-              fontWeight: FontWeight.w500, color: Colors.white),
-        ),
-        backgroundColor: AppColors.primary,
+        content: Text(msg,
+            style: GoogleFonts.hankenGrotesk(fontWeight: FontWeight.w500, color: Colors.white)),
+        backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         margin: const EdgeInsets.all(20),
@@ -129,443 +246,317 @@ class _ProyectoDetalleAdminScreenState
     );
   }
 
-  // ── Subida evidencia ──────────────────────────────────────────────────────
-
-  void _mostrarSheetSubida() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => _SubirEvidenciaSheet(
-        onSeleccion: (fuente) {
-          Navigator.of(ctx).pop();
-          _iniciarSubida(fuente);
-        },
-      ),
-    );
-  }
-
-  Future<void> _iniciarSubida(String fuente) async {
-    if (!mounted) return;
-    setState(() => _subiendo = true);
-
-    await Future.delayed(const Duration(milliseconds: 1800));
-    if (!mounted) return;
-
-    final hoy = DateTime.now();
-    final nueva = EvidenciaAdmin(
-      id: 'EV-${hoy.millisecondsSinceEpoch}',
-      estadoIA: EstadoIA.validandoIA,
-      fecha: '${hoy.day} ${_mesCorto(hoy.month)} ${hoy.year}',
-    );
-
-    setState(() {
-      _subiendo = false;
-      _evidencias.insert(0, nueva);
-    });
-
-    await Future.delayed(const Duration(seconds: 3));
-    if (!mounted) return;
-
-    setState(() => nueva.estadoIA = EstadoIA.validado);
-  }
-
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    if (_proyecto == null) {
-      return Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: RadialGradient(
-              radius: 1.2,
-              colors: [
-                AppColors.bgGradientStart,
-                AppColors.bgGradientMid,
-                AppColors.bgGradientEnd,
-              ],
-            ),
-          ),
-          child: Center(
-            child: Text(
-              'Proyecto no encontrado.',
-              style: GoogleFonts.hankenGrotesk(
-                fontSize: 15,
-                color: AppColors.textMuted,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    final p = _proyecto!;
-    final (_, fg, dot, label) = _estadoProyectoVis(_estado);
-
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: _mostrarSheetSubida,
-        backgroundColor: AppColors.primary,
-        tooltip: 'Subir evidencia',
-        child: const Icon(Icons.camera_alt_outlined, color: Colors.white),
-      ),
+      floatingActionButton: (_loading || _error != null)
+          ? null
+          : FloatingActionButton(
+              onPressed: _mostrarSheetSubida,
+              backgroundColor: AppColors.primary,
+              tooltip: 'Subir evidencia',
+              child: const Icon(Icons.camera_alt_outlined, color: Colors.white),
+            ),
       body: Container(
         decoration: const BoxDecoration(
           gradient: RadialGradient(
             radius: 1.2,
-            colors: [
-              AppColors.bgGradientStart,
-              AppColors.bgGradientMid,
-              AppColors.bgGradientEnd,
-            ],
+            colors: [AppColors.bgGradientStart, AppColors.bgGradientMid, AppColors.bgGradientEnd],
           ),
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(38, 32, 38, 100),
+        child: SafeArea(child: _buildBody()),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.wifi_off_outlined, size: 40, color: AppColors.textSubtle),
+            const SizedBox(height: 14),
+            Text(_error!, style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted)),
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: _loadData,
+              icon: const Icon(Icons.refresh, size: 16),
+              label: const Text('Reintentar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary, foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_proyecto == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Proyecto no encontrado.',
+                style: GoogleFonts.hankenGrotesk(fontSize: 15, color: AppColors.textMuted)),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: () => context.go('/admin/proyectos'),
+              child: Text('Volver', style: GoogleFonts.hankenGrotesk(color: AppColors.primary, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final p     = _proyecto!;
+    final nombre  = p['name']?.toString() ?? p['nombre']?.toString() ?? 'Proyecto';
+    final empresa = p['companyName']?.toString() ?? p['empresa']?.toString() ?? '—';
+    final (_, fg, dot, label) = _estadoProyectoVis(_estado);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(38, 32, 38, 100),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Volver ───────────────────────────────────────────────────────
+          GestureDetector(
+            onTap: () => context.go('/admin/proyectos'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: AppColors.textSubtle),
+                const SizedBox(width: 4),
+                Text('Volver a proyectos',
+                    style: GoogleFonts.hankenGrotesk(
+                        fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textSubtle)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // ── Header ───────────────────────────────────────────────────────
+          Text(nombre,
+              style: GoogleFonts.plusJakartaSans(
+                  fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.ink, height: 1.15)),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(Icons.business_outlined, size: 14, color: AppColors.textSubtle),
+              const SizedBox(width: 5),
+              Text(empresa,
+                  style: GoogleFonts.hankenGrotesk(
+                      fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textSubtle)),
+              const SizedBox(width: 12),
+              EstadoBadge.custom(bg: _estadoProyectoVis(_estado).$1, fg: fg, dot: dot, label: label),
+            ],
+          ),
+          const SizedBox(height: 28),
+
+          // ── Estado & avance ───────────────────────────────────────────────
+          _SectionCard(
+            title: 'Estado del proyecto',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Volver ────────────────────────────────────────────────
-                GestureDetector(
-                  onTap: () => context.go('/admin/proyectos'),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.arrow_back_ios_new_rounded,
-                          size: 14, color: AppColors.textSubtle),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Volver a proyectos',
-                        style: GoogleFonts.hankenGrotesk(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.textSubtle,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                Text('Estado',
+                    style: GoogleFonts.hankenGrotesk(
+                        fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSubtle)),
+                const SizedBox(height: 8),
+                _EstadoDropdown(value: _estado, onChanged: (v) => setState(() => _estado = v)),
                 const SizedBox(height: 20),
-
-                // ── Header ────────────────────────────────────────────────
-                Text(
-                  p.nombre,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.ink,
-                    height: 1.15,
-                  ),
-                ),
-                const SizedBox(height: 6),
                 Row(
                   children: [
-                    const Icon(Icons.business_outlined,
-                        size: 14, color: AppColors.textSubtle),
-                    const SizedBox(width: 5),
-                    Text(
-                      p.empresa,
-                      style: GoogleFonts.hankenGrotesk(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textSubtle,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    EstadoBadge.custom(
-                      bg: _estadoProyectoVis(_estado).$1,
-                      fg: fg,
-                      dot: dot,
-                      label: label,
-                    ),
+                    Text('Avance',
+                        style: GoogleFonts.hankenGrotesk(
+                            fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSubtle)),
+                    const Spacer(),
+                    Text('${(_avance * 100).round()}%',
+                        style: GoogleFonts.plusJakartaSans(
+                            fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
                   ],
                 ),
-                const SizedBox(height: 28),
-
-                // ── Estado del proyecto ───────────────────────────────────
-                _SectionCard(
-                  title: 'Estado del proyecto',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Estado',
-                        style: GoogleFonts.hankenGrotesk(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSubtle,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      _EstadoDropdown(
-                        value: _estado,
-                        onChanged: (v) => setState(() => _estado = v),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Text(
-                            'Avance',
-                            style: GoogleFonts.hankenGrotesk(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSubtle,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            '${(_avance * 100).round()}%',
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                        ],
-                      ),
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 6,
-                          thumbShape:
-                              const RoundSliderThumbShape(enabledThumbRadius: 9),
-                          overlayShape:
-                              const RoundSliderOverlayShape(overlayRadius: 18),
-                          activeTrackColor: AppColors.primary,
-                          inactiveTrackColor: AppColors.line,
-                          thumbColor: AppColors.primary,
-                          overlayColor: AppColors.primary.withValues(alpha: 0.15),
-                        ),
-                        child: Slider(
-                          value: _avance,
-                          min: 0,
-                          max: 1,
-                          divisions: 100,
-                          onChanged: (v) => setState(() => _avance = v),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: _guardarCambios,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(11),
-                            ),
-                          ),
-                          child: Text(
-                            'Guardar cambios',
-                            style: GoogleFonts.hankenGrotesk(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 6,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
+                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+                    activeTrackColor: AppColors.primary,
+                    inactiveTrackColor: AppColors.line,
+                    thumbColor: AppColors.primary,
+                    overlayColor: AppColors.primary.withValues(alpha: 0.15),
+                  ),
+                  child: Slider(
+                    value: _avance,
+                    min: 0, max: 1, divisions: 100,
+                    onChanged: (v) => setState(() => _avance = v),
                   ),
                 ),
-                const SizedBox(height: 20),
-
-                // ── Evidencias ────────────────────────────────────────────
-                _SectionCard(
-                  title: 'Evidencias',
-                  trailing: Text(
-                    '${_evidencias.length} fotos',
-                    style: GoogleFonts.hankenGrotesk(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.textSubtle,
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _savingProgress ? null : _guardarCambios,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.6),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
                     ),
+                    child: _savingProgress
+                        ? const SizedBox(
+                            height: 18, width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text('Guardar cambios',
+                            style: GoogleFonts.hankenGrotesk(
+                                fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
                   ),
-                  child: Column(
-                    children: [
-                      // Barra de progreso de subida
-                      AnimatedSize(
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeOut,
-                        child: _subiendo
-                            ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(
-                                              AppColors.primary),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Text(
-                                        'Subiendo evidencia…',
-                                        style: GoogleFonts.hankenGrotesk(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
-                                          color: AppColors.textMuted,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(999),
-                                    child: LinearProgressIndicator(
-                                      minHeight: 5,
-                                      backgroundColor: AppColors.line,
-                                      valueColor:
-                                          const AlwaysStoppedAnimation<Color>(
-                                              AppColors.primary),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                ],
-                              )
-                            : const SizedBox.shrink(),
-                      ),
-                      if (_evidencias.isEmpty && !_subiendo)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          child: Center(
-                            child: Column(
-                              children: [
-                                const Icon(Icons.photo_library_outlined,
-                                    size: 40, color: AppColors.placeholder),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Sin evidencias aún',
-                                  style: GoogleFonts.hankenGrotesk(
-                                    fontSize: 14,
-                                    color: AppColors.textMuted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                            childAspectRatio: 1.15,
-                          ),
-                          itemCount: _evidencias.length,
-                          itemBuilder: (context, i) =>
-                              _EvidenciaCard(_evidencias[i], i),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // ── Marco Lógico ──────────────────────────────────────────
-                _SectionCard(
-                  title: 'Marco Lógico',
-                  trailing: _editandoMarco
-                      ? null
-                      : GestureDetector(
-                          onTap: () => setState(() => _editandoMarco = true),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.surfaceMint,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              'Editar',
-                              style: GoogleFonts.hankenGrotesk(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          ),
-                        ),
-                  child: _editandoMarco
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            TextField(
-                              controller: _marcoCtrl,
-                              maxLines: null,
-                              minLines: 5,
-                              style: GoogleFonts.hankenGrotesk(
-                                fontSize: 14,
-                                color: AppColors.ink,
-                                height: 1.55,
-                              ),
-                              decoration: InputDecoration(
-                                filled: true,
-                                fillColor: AppColors.surfaceTint,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  borderSide: const BorderSide(
-                                      color: AppColors.inputBorder, width: 1.5),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  borderSide: const BorderSide(
-                                      color: AppColors.inputBorder, width: 1.5),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  borderSide: const BorderSide(
-                                      color: AppColors.primary, width: 1.5),
-                                ),
-                                contentPadding: const EdgeInsets.all(14),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton(
-                              onPressed: _guardarMarco,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 13),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              child: Text(
-                                'Guardar',
-                                style: GoogleFonts.hankenGrotesk(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      : Text(
-                          _marcoCtrl.text,
-                          style: GoogleFonts.hankenGrotesk(
-                            fontSize: 14,
-                            color: AppColors.textMuted,
-                            height: 1.6,
-                          ),
-                        ),
                 ),
               ],
             ),
           ),
-        ),
+          const SizedBox(height: 20),
+
+          // ── Evidencias ────────────────────────────────────────────────────
+          _SectionCard(
+            title: 'Evidencias',
+            trailing: Text('${_evidencias.length} fotos',
+                style: GoogleFonts.hankenGrotesk(
+                    fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textSubtle)),
+            child: Column(
+              children: [
+                // Barra de progreso de subida
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOut,
+                  child: _subiendo
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary)),
+                                ),
+                                const SizedBox(width: 10),
+                                Text('Subiendo evidencia…',
+                                    style: GoogleFonts.hankenGrotesk(
+                                        fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textMuted)),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(999),
+                              child: const LinearProgressIndicator(
+                                minHeight: 5,
+                                backgroundColor: AppColors.line,
+                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        )
+                      : const SizedBox.shrink(),
+                ),
+                if (_evidencias.isEmpty && !_subiendo)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          const Icon(Icons.photo_library_outlined, size: 40, color: AppColors.placeholder),
+                          const SizedBox(height: 8),
+                          Text('Sin evidencias aún',
+                              style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted)),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.15,
+                    ),
+                    itemCount: _evidencias.length,
+                    itemBuilder: (context, i) => _EvidenciaCard(_evidencias[i], i),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // ── Marco lógico ──────────────────────────────────────────────────
+          _SectionCard(
+            title: 'Marco Lógico',
+            trailing: _editandoMarco
+                ? null
+                : GestureDetector(
+                    onTap: () => setState(() => _editandoMarco = true),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                          color: AppColors.surfaceMint, borderRadius: BorderRadius.circular(8)),
+                      child: Text('Editar',
+                          style: GoogleFonts.hankenGrotesk(
+                              fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.primary)),
+                    ),
+                  ),
+            child: _editandoMarco
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: _marcoCtrl,
+                        maxLines: null,
+                        minLines: 5,
+                        style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.ink, height: 1.55),
+                        decoration: InputDecoration(
+                          filled: true, fillColor: AppColors.surfaceTint,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: AppColors.inputBorder, width: 1.5)),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: AppColors.inputBorder, width: 1.5)),
+                          focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+                          contentPadding: const EdgeInsets.all(14),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: _guardarMarco,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: Text('Guardar',
+                            style: GoogleFonts.hankenGrotesk(
+                                fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
+                      ),
+                    ],
+                  )
+                : Text(
+                    _marcoCtrl.text.isEmpty ? 'Sin marco lógico registrado.' : _marcoCtrl.text,
+                    style: GoogleFonts.hankenGrotesk(fontSize: 14, color: AppColors.textMuted, height: 1.6),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -595,18 +586,10 @@ class _SectionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                title,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.ink,
-                ),
-              ),
-              if (trailing != null) ...[
-                const Spacer(),
-                trailing!,
-              ],
+              Text(title,
+                  style: GoogleFonts.plusJakartaSans(
+                      fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink)),
+              if (trailing != null) ...[const Spacer(), trailing!],
             ],
           ),
           const SizedBox(height: 16),
@@ -620,8 +603,8 @@ class _SectionCard extends StatelessWidget {
 // ─── Dropdown estado ──────────────────────────────────────────────────────────
 
 class _EstadoDropdown extends StatelessWidget {
-  final EstadoProyectoAdmin value;
-  final ValueChanged<EstadoProyectoAdmin> onChanged;
+  final _EstadoP value;
+  final ValueChanged<_EstadoP> onChanged;
   const _EstadoDropdown({required this.value, required this.onChanged});
 
   @override
@@ -633,43 +616,32 @@ class _EstadoDropdown extends StatelessWidget {
         border: Border.all(color: AppColors.inputBorder, width: 1.5),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: DropdownButton<EstadoProyectoAdmin>(
+      child: DropdownButton<_EstadoP>(
         value: value,
         isExpanded: true,
         underline: const SizedBox.shrink(),
         isDense: true,
         dropdownColor: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        items: EstadoProyectoAdmin.values.map((e) {
+        items: _EstadoP.values.map((e) {
           final (_, fg, dot, label) = _estadoProyectoVis(e);
           return DropdownMenuItem(
             value: e,
             child: Row(
               children: [
                 Container(
-                  width: 8,
-                  height: 8,
+                  width: 8, height: 8,
                   margin: const EdgeInsets.only(right: 8),
-                  decoration: BoxDecoration(
-                    color: dot,
-                    shape: BoxShape.circle,
-                  ),
+                  decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
                 ),
-                Text(
-                  label,
-                  style: GoogleFonts.hankenGrotesk(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: fg,
-                  ),
-                ),
+                Text(label,
+                    style: GoogleFonts.hankenGrotesk(
+                        fontSize: 14, fontWeight: FontWeight.w600, color: fg)),
               ],
             ),
           );
         }).toList(),
-        onChanged: (v) {
-          if (v != null) onChanged(v);
-        },
+        onChanged: (v) { if (v != null) onChanged(v); },
       ),
     );
   }
@@ -678,158 +650,60 @@ class _EstadoDropdown extends StatelessWidget {
 // ─── Tarjeta de evidencia ─────────────────────────────────────────────────────
 
 class _EvidenciaCard extends StatelessWidget {
-  final EvidenciaAdmin evidencia;
+  final _EvidenciaItem evidencia;
   final int index;
   const _EvidenciaCard(this.evidencia, this.index);
 
   @override
   Widget build(BuildContext context) {
-    final colors = _photoGradients[index % _photoGradients.length];
+    final colors  = _photoGradients[index % _photoGradients.length];
     final (bg, fg, dot, label) = _estadoIAVis(evidencia.estadoIA);
 
     return Stack(
       children: [
-        Container(
-          decoration: BoxDecoration(
+        // Fondo: imagen real o gradiente placeholder
+        Positioned.fill(
+          child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: colors,
-            ),
-          ),
-          child: Center(
-            child: Icon(
-              Icons.eco_outlined,
-              size: 42,
-              color: Colors.white.withValues(alpha: 0.18),
-            ),
+            child: evidencia.imageUrl != null
+                ? Image.network(
+                    evidencia.imageUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => _GradientBox(colors: colors),
+                  )
+                : _GradientBox(colors: colors),
           ),
         ),
+        Positioned(top: 8, left: 8,
+            child: EstadoBadge.custom(bg: bg, fg: fg, dot: dot, label: label)),
         Positioned(
-          top: 8,
-          left: 8,
-          child: EstadoBadge.custom(bg: bg, fg: fg, dot: dot, label: label),
-        ),
-        Positioned(
-          bottom: 8,
-          right: 8,
-          child: Text(
-            evidencia.fecha,
-            style: GoogleFonts.hankenGrotesk(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.75),
-            ),
-          ),
+          bottom: 8, right: 8,
+          child: Text(evidencia.fecha,
+              style: GoogleFonts.hankenGrotesk(
+                  fontSize: 10, fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.75))),
         ),
       ],
     );
   }
 }
 
-// ─── Bottom sheet subida ──────────────────────────────────────────────────────
-
-class _SubirEvidenciaSheet extends StatelessWidget {
-  final ValueChanged<String> onSeleccion;
-  const _SubirEvidenciaSheet({required this.onSeleccion});
+class _GradientBox extends StatelessWidget {
+  final List<Color> colors;
+  const _GradientBox({required this.colors});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 36),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: AppColors.line,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          Text(
-            'Subir evidencia',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.ink,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Selecciona la fuente de la imagen.',
-            style: GoogleFonts.hankenGrotesk(
-              fontSize: 14,
-              color: AppColors.textMuted,
-            ),
-          ),
-          const SizedBox(height: 20),
-          _SheetOption(
-            icon: Icons.camera_alt_outlined,
-            label: 'Cámara',
-            onTap: () => onSeleccion('camara'),
-          ),
-          const SizedBox(height: 10),
-          _SheetOption(
-            icon: Icons.photo_library_outlined,
-            label: 'Galería',
-            onTap: () => onSeleccion('galeria'),
-          ),
-        ],
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors,
+        ),
+      ),
+      child: Center(
+        child: Icon(Icons.eco_outlined, size: 42, color: Colors.white.withValues(alpha: 0.18)),
       ),
     );
   }
 }
 
-class _SheetOption extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _SheetOption({required this.icon, required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceTint,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.line, width: 1),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: AppColors.surfaceMint,
-                borderRadius: BorderRadius.circular(11),
-              ),
-              child: Icon(icon, size: 22, color: AppColors.primary),
-            ),
-            const SizedBox(width: 14),
-            Text(
-              label,
-              style: GoogleFonts.hankenGrotesk(
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                color: AppColors.ink,
-              ),
-            ),
-            const Spacer(),
-            const Icon(Icons.arrow_forward_ios_rounded,
-                size: 14, color: AppColors.placeholder),
-          ],
-        ),
-      ),
-    );
-  }
-}
