@@ -46,23 +46,23 @@ class _EvidenciaReal {
     required this.fecha,
   });
 
-  factory _EvidenciaReal.fromJson(Map<String, dynamic> j) => _EvidenciaReal(
-        id:      j['id']?.toString() ?? '',
-        url:     j['imageUrl']?.toString() ??
-                 j['url']?.toString() ??
-                 j['image']?.toString() ?? '',
-        estadoIa: (j['aiStatus']?.toString() ??
-                   j['status']?.toString() ?? 'pending').toLowerCase(),
-        arbolesDetectados: (j['treesDetected'] as num?)?.toInt() ??
-                           (j['detectedTrees'] as num?)?.toInt(),
-        especie:     j['species']?.toString() ??
-                     j['detectedSpecies']?.toString(),
-        aiResultado: j['aiResult']?.toString() ??
-                     j['aiAnalysis']?.toString() ??
-                     j['analysis']?.toString(),
-        fecha: j['createdAt']?.toString() ??
-               j['date']?.toString() ?? '',
-      );
+  factory _EvidenciaReal.fromJson(Map<String, dynamic> j) {
+    final validated = j['aiValidated'] as bool? ?? false;
+    final estado = validated ? 'validated'
+        : (j['aiStatus']?.toString() ?? j['status']?.toString() ?? 'pending').toLowerCase();
+    return _EvidenciaReal(
+      id:               j['id']?.toString() ?? '',
+      url:              j['photoUrl']?.toString() ?? j['imageUrl']?.toString() ??
+                        j['fileUrl']?.toString()  ?? j['url']?.toString() ?? '',
+      estadoIa:         estado,
+      arbolesDetectados:(j['aiEstimatedTrees'] as num?)?.toInt() ??
+                        (j['treesDetected'] as num?)?.toInt(),
+      especie:          j['species']?.toString() ?? j['detectedSpecies']?.toString(),
+      aiResultado:      j['aiObservations']?.toString() ?? j['aiResult']?.toString() ??
+                        j['aiAnalysis']?.toString(),
+      fecha:            j['createdAt']?.toString() ?? '',
+    );
+  }
 
   bool get esValidado =>
       estadoIa == 'validated' || estadoIa == 'approved' ||

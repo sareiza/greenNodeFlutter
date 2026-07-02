@@ -18,22 +18,39 @@ enum _EstadoP { enProgreso, completado, cancelado }
 class _EvidenciaItem {
   final String id;
   final String? imageUrl;
-  final String estadoIA; // pending | approved | rejected | processing
+  final String estadoIA;
   final String fecha;
+  final double? aiConfidence;
+  final int?    aiEstimatedTrees;
+  final String? aiObservations;
 
   const _EvidenciaItem({
     required this.id,
     this.imageUrl,
     required this.estadoIA,
     required this.fecha,
+    this.aiConfidence,
+    this.aiEstimatedTrees,
+    this.aiObservations,
   });
 
-  factory _EvidenciaItem.fromJson(Map<String, dynamic> j) => _EvidenciaItem(
-        id:       j['id']?.toString() ?? '',
-        imageUrl: j['imageUrl']?.toString() ?? j['url']?.toString() ?? j['photoUrl']?.toString(),
-        estadoIA: (j['status']?.toString() ?? 'pending').toLowerCase(),
-        fecha:    _fmt(j['createdAt']?.toString() ?? j['date']?.toString()),
-      );
+  factory _EvidenciaItem.fromJson(Map<String, dynamic> j) {
+    final validated = j['aiValidated'] as bool? ?? false;
+    final estado = validated ? 'validated'
+        : (j['status']?.toString() ?? 'pending').toLowerCase();
+    return _EvidenciaItem(
+      id:              j['id']?.toString() ?? '',
+      imageUrl:        j['photoUrl']?.toString() ?? j['imageUrl']?.toString() ??
+                       j['fileUrl']?.toString()  ?? j['url']?.toString(),
+      estadoIA:        estado,
+      fecha:           _fmt(j['createdAt']?.toString()),
+      aiConfidence:    (j['aiConfidence'] as num?)?.toDouble(),
+      aiEstimatedTrees:(j['aiEstimatedTrees'] as num?)?.toInt(),
+      aiObservations:  j['aiObservations']?.toString(),
+    );
+  }
+
+  bool get pendiente => estadoIA == 'pending';
 }
 
 // ─── Helpers visuales ─────────────────────────────────────────────────────────
@@ -97,6 +114,7 @@ class _ProyectoDetalleAdminScreenState extends State<ProyectoDetalleAdminScreen>
   Map<String, dynamic>? _proyecto;
   _EstadoP _estado = _EstadoP.enProgreso;
   double _avance = 0.0;
+  int _totalArboles = 1;
   late TextEditingController _marcoCtrl;
   bool _editandoMarco = false;
 
@@ -137,11 +155,22 @@ class _ProyectoDetalleAdminScreenState extends State<ProyectoDetalleAdminScreen>
       setState(() {
         _proyecto  = proyecto;
         _estado    = _mapEstadoP(proyecto['status']?.toString() ?? '');
-        _avance    = (proyecto['progress'] as num?)?.toDouble() ?? 0.0;
+        final pct     = (proyecto['progressPercentage'] as num?)?.toDouble() ??
+                        (proyecto['progress'] as num?)?.toDouble() ?? 0.0;
+        _avance       = pct > 1.0 ? pct / 100.0 : pct;
+        _totalArboles = (proyecto['numberOfTrees'] as num?)?.toInt() ?? 1;
         _marcoCtrl.text = proyecto['logicalFramework']?.toString() ??
             proyecto['marcoLogico']?.toString() ??
             proyecto['description']?.toString() ?? '';
-        _evidencias = evidRaw
+
+        // Usar evidencias embebidas del proyecto si el endpoint separado está vacío
+        final embeddedEvid = proyecto['evidences'];
+        final evidList = (embeddedEvid is List && embeddedEvid.isNotEmpty)
+            ? embeddedEvid
+            : evidRaw;
+        // ignore: avoid_print
+        if (evidList.isNotEmpty) print('[EVID KEYS]: ${(evidList.first as Map).keys.toList()}');
+        _evidencias = evidList
             .map((e) => _EvidenciaItem.fromJson(e as Map<String, dynamic>))
             .toList();
         _loading = false;
@@ -170,9 +199,11 @@ class _ProyectoDetalleAdminScreenState extends State<ProyectoDetalleAdminScreen>
   Future<void> _guardarCambios() async {
     setState(() => _savingProgress = true);
     try {
-      await apiService.actualizarProgreso(widget.id, _avance);
+      final validatedCount = (_avance * _totalArboles).round();
+      await apiService.actualizarProgreso(widget.id, validatedCount);
       if (!mounted) return;
       _showSnackBar('Progreso actualizado correctamente.', AppColors.primary);
+      await _loadData();
     } catch (e) {
       if (!mounted) return;
       _showSnackBar(e.toString().replaceFirst('Exception: ', ''), AppColors.rechazadoDot);
@@ -220,8 +251,17 @@ class _ProyectoDetalleAdminScreenState extends State<ProyectoDetalleAdminScreen>
     try {
       await apiService.subirEvidencia(widget.id, bytes, name);
       if (!mounted) return;
+      _showSnackBar('Evidencia subida. Validando con IA…', AppColors.primary);
+      // Polling: el backend procesa la IA en background; refrescamos hasta 3 veces
       await _recargarEvidencias();
-      _showSnackBar('Evidencia subida correctamente.', AppColors.primary);
+      for (int i = 0; i < 3; i++) {
+        if (!mounted) return;
+        if (!_evidencias.any((e) => e.pendiente)) break;
+        await Future.delayed(const Duration(seconds: 3));
+        if (!mounted) return;
+        await _recargarEvidencias();
+      }
+      if (mounted) _showSnackBar('Evidencia procesada.', AppColors.primary);
     } catch (e) {
       if (!mounted) return;
       _showSnackBar(e.toString().replaceFirst('Exception: ', ''), AppColors.rechazadoDot);

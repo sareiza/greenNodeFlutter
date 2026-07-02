@@ -36,7 +36,7 @@ class _ProyectoItem {
         nombre:      j['name']?.toString() ?? j['nombre']?.toString() ?? 'Proyecto sin nombre',
         empresa:     j['companyName']?.toString() ?? j['empresa']?.toString() ?? '—',
         status:      (j['status']?.toString() ?? 'active').toLowerCase(),
-        avance:      (j['progress'] as num?)?.toDouble() ?? 0.0,
+        avance:      () { final p = (j['progressPercentage'] as num?)?.toDouble() ?? (j['progress'] as num?)?.toDouble() ?? 0.0; return p > 1.0 ? p / 100.0 : p; }(),
         fechaInicio: _fmt(j['startDate']?.toString() ?? j['createdAt']?.toString()),
       );
 

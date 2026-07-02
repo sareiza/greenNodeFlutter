@@ -107,11 +107,11 @@ class ApiService {
     return _parseResponse(resp) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> actualizarProgreso(String id, double progress) async {
+  Future<Map<String, dynamic>> actualizarProgreso(String id, int validatedTreeCount) async {
     final resp = await http.put(
       Uri.parse('$_base/projects/$id/progress'),
       headers: _authHeaders,
-      body: jsonEncode({'progress': progress}),
+      body: jsonEncode({'validatedTreeCount': validatedTreeCount}),
     );
     return _parseResponse(resp) as Map<String, dynamic>;
   }

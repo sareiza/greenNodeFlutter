@@ -150,12 +150,14 @@ class ProyectoProvider extends ChangeNotifier {
   void _mapDatos(Map<String, dynamic> data) {
     nombre       = data['name']?.toString() ?? data['nombre']?.toString() ?? 'Mi proyecto';
     status       = (data['status']?.toString() ?? 'active').toLowerCase();
-    avance       = (data['progress'] as num?)?.toDouble() ?? 0.0;
-    territory    = data['territory']?.toString() ??
-                   data['area']?.toString() ??
-                   data['region']?.toString() ?? '';
-    totalArboles = (data['trees'] as num?)?.toInt() ??
-                   (data['numberOfTrees'] as num?)?.toInt() ??
+    final pct    = (data['progressPercentage'] as num?)?.toDouble() ??
+                   (data['progress'] as num?)?.toDouble() ?? 0.0;
+    avance       = pct > 1.0 ? pct / 100.0 : pct;
+    territory    = data['territoryName']?.toString() ??
+                   data['territory']?.toString() ??
+                   data['area']?.toString() ?? '';
+    totalArboles = (data['numberOfTrees'] as num?)?.toInt() ??
+                   (data['trees'] as num?)?.toInt() ??
                    (data['treeQuantity'] as num?)?.toInt() ?? 0;
     fechaInicio  = _parseDate(data['startDate'] ?? data['createdAt']);
     fechaFin     = _parseDate(data['endDate'] ?? data['estimatedEndDate'] ?? data['finishDate']);

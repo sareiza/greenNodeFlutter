@@ -125,7 +125,7 @@ _DashboardData _buildData(
       nombre:  p['name']?.toString() ?? p['nombre']?.toString() ?? 'Proyecto sin nombre',
       empresa: p['companyName']?.toString() ?? p['empresa']?.toString() ?? '—',
       estado:  _mapEstado(p['status']?.toString() ?? ''),
-      avance:  (p['progress'] as num?)?.toDouble() ?? 0.0,
+      avance:  () { final pct = (p['progressPercentage'] as num?)?.toDouble() ?? (p['progress'] as num?)?.toDouble() ?? 0.0; return pct > 1.0 ? pct / 100.0 : pct; }(),
     );
   }).toList();
 
